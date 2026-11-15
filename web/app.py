@@ -102,8 +102,16 @@ async def index_or_block(request: Request, domain: Optional[str] = None):
     # Log hit in blocked_domains
     if blocked_info:
         db.increment_hits(req_domain)
-        # Also log query
-        client_ip = request.client.host if request.client else "127.0.0.1"
+        # Get real client IP forwarded by Nginx
+        forwarded_for = request.headers.get("x-forwarded-for")
+        real_ip = request.headers.get("x-real-ip")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        elif real_ip:
+            client_ip = real_ip.strip()
+        else:
+            client_ip = request.client.host if request.client else "127.0.0.1"
+
         db.log_query(client_ip=client_ip, domain=req_domain, status="BLOCKED")
 
     return templates.TemplateResponse(
