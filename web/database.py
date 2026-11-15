@@ -159,8 +159,21 @@ def init_db():
             ("admin", "admin@netshield.local", hash_password("admin123"), now)
         )
 
-    # Seed default commercial plans if empty
-    cursor.execute("SELECT COUNT(*) FROM plans;")
+    # Ensure Plano Free exists (available for free self-service registration)
+    cursor.execute(
+        "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
+        (
+            "Plano Free",
+            "Versão gratuita com proteção DNS + VPN WireGuard para 1 dispositivo, bloqueio de anúncios e conteúdo adulto.",
+            0.0,
+            30,
+            1,
+            now
+        )
+    )
+
+    # Seed default commercial plans if only Free or empty
+    cursor.execute("SELECT COUNT(*) FROM plans WHERE price > 0;")
     if cursor.fetchone()[0] == 0:
         initial_plans = [
             ("Plano Básico", "Proteção DNS + VPN para até 2 dispositivos com bloqueio de anúncios e conteúdo adulto.", 19.90, 30, 2),
@@ -169,7 +182,7 @@ def init_db():
         ]
         for name, desc, price, days, max_dev in initial_plans:
             cursor.execute(
-                "INSERT INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
+                "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
                 (name, desc, price, days, max_dev, now)
             )
 
@@ -353,6 +366,14 @@ def get_client_by_user_id(user_id: int) -> Optional[Dict[str, Any]]:
     LEFT JOIN users u ON c.user_id = u.id
     WHERE c.user_id = ? LIMIT 1;
     """, (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_free_plan() -> Optional[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM plans WHERE price = 0 AND is_active = 1 ORDER BY id ASC LIMIT 1;")
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None

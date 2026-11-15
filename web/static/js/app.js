@@ -390,24 +390,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const plans = data.plans || [];
     badgePlanCount.textContent = plans.length;
 
-    plansGrid.innerHTML = plans.map(p => `
+    plansGrid.innerHTML = plans.map(p => {
+      const isFree = Number(p.price) === 0;
+      const priceHtml = isFree
+        ? `<div class="plan-price" style="color:var(--status-allowed);">GRATUITO <span>/ ${p.duration_days} dias</span></div>`
+        : `<div class="plan-price">R$ ${Number(p.price).toFixed(2).replace(".", ",")} <span>/ ${p.duration_days} dias</span></div>`;
+      const devLabel = p.max_devices === 1 ? "1 dispositivo" : `Até ${p.max_devices} dispositivos`;
+      return `
       <div class="plan-card">
         <div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
             <h3 style="font-size:1.1rem; font-weight:600;">${escapeHtml(p.name)}</h3>
             <span class="badge ${p.is_active ? 'badge-active' : 'badge-suspended'}">${p.is_active ? 'ATIVO' : 'INATIVO'}</span>
           </div>
-          <div class="plan-price">R$ ${Number(p.price).toFixed(2).replace(".", ",")} <span>/ ${p.duration_days} dias</span></div>
+          ${priceHtml}
           <p style="font-size:0.84rem; color:var(--text-secondary); margin-top:0.6rem;">${escapeHtml(p.description || "Sem descrição")}</p>
         </div>
         <div style="border-top:1px solid var(--border-subtle); padding-top:0.85rem; display:flex; justify-content:space-between; align-items:center;">
-          <span class="font-mono" style="font-size:0.8rem; color:var(--text-secondary);">Até ${p.max_devices} dispositivos</span>
+          <span class="font-mono" style="font-size:0.8rem; color:var(--text-secondary);">${devLabel}</span>
           <div style="display:flex; gap:0.4rem;">
             <button class="btn btn-secondary btn-sm" onclick="window.togglePlan(${p.id})">${p.is_active ? 'Desativar' : 'Ativar'}</button>
             <button class="btn btn-danger btn-sm" onclick="window.deletePlan(${p.id})">🗑️</button>
           </div>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
   }
 
   btnOpenAddPlanModal.addEventListener("click", () => {

@@ -3,12 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entrar | NetShield DNS</title>
+  <title>{{ page_title or 'Entrar | NetShield DNS' }}</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .auth-switcher {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.4rem;
+      background-color: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.3rem;
+    }
+    .auth-switch-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.55rem 0.75rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+    .auth-switch-btn.active {
+      background-color: var(--accent-primary);
+      color: #ffffff;
+    }
+    .free-highlight {
+      background-color: var(--status-allowed-subtle);
+      border: 1px solid hsla(152, 68%, 42%, 0.25);
+      color: var(--status-allowed);
+      border-radius: var(--radius-md);
+      padding: 0.6rem 0.85rem;
+      font-size: 0.8rem;
+      text-align: center;
+    }
+  </style>
 </head>
 <body class="login-body">
 
-  <main class="login-card">
+  <main class="login-card" style="max-width: 450px;">
     <div class="brand-wrapper" style="justify-content: center;">
       <div class="brand-icon">🛡️</div>
       <div>
@@ -17,19 +53,25 @@
       </div>
     </div>
 
-    <div style="text-align: center;">
-      <h1 style="font-size: 1.25rem; font-weight: 600;">Acesse sua Conta</h1>
-      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
-        Painel Administrativo e Portal do Assinante
-      </p>
+    <div class="auth-switcher" role="tablist">
+      <button type="button" class="auth-switch-btn {{ 'active' if initial_mode != 'register' else '' }}" id="tabBtnLogin">Entrar</button>
+      <button type="button" class="auth-switch-btn {{ 'active' if initial_mode == 'register' else '' }}" id="tabBtnRegister">Versão Free (Grátis)</button>
     </div>
 
     <div class="login-error" id="loginError" role="alert"></div>
 
-    <form id="loginForm" style="display: flex; flex-direction: column; gap: 1rem;">
+    <!-- Login Form -->
+    <form id="loginForm" style="display: {{ 'none' if initial_mode == 'register' else 'flex' }}; flex-direction: column; gap: 1rem;">
+      <div style="text-align: center;">
+        <h1 style="font-size: 1.2rem; font-weight: 600;">Acesse sua Conta</h1>
+        <p style="font-size: 0.84rem; color: var(--text-secondary); margin-top: 0.2rem;">
+          Painel Administrativo e Portal do Assinante
+        </p>
+      </div>
+
       <div class="form-group">
         <label class="form-label" for="usernameInput">Usuário</label>
-        <input type="text" id="usernameInput" name="username" class="form-input" placeholder="admin ou seu usuário" autocomplete="username" required autofocus>
+        <input type="text" id="usernameInput" name="username" class="form-input" placeholder="admin ou seu usuário" autocomplete="username" required>
       </div>
 
       <div class="form-group">
@@ -42,15 +84,81 @@
       </button>
     </form>
 
+    <!-- Free Version Registration Form -->
+    <form id="registerFreeForm" style="display: {{ 'flex' if initial_mode == 'register' else 'none' }}; flex-direction: column; gap: 0.85rem;">
+      <div style="text-align: center;">
+        <h1 style="font-size: 1.2rem; font-weight: 600;">Criar Conta Gratuita</h1>
+        <p style="font-size: 0.83rem; color: var(--text-secondary); margin-top: 0.2rem;">
+          Teste o NetShield DNS + WireGuard VPN gratuitamente
+        </p>
+      </div>
+
+      <div class="free-highlight">
+        ✓ Plano Free: <strong>1 dispositivo</strong> com bloqueio de anúncios &bull; Ativação imediata
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="freeNameInput">Nome Completo</label>
+        <input type="text" id="freeNameInput" name="name" class="form-input" placeholder="Ex: Maria Oliveira" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="freeEmailInput">E-mail</label>
+        <input type="email" id="freeEmailInput" name="email" class="form-input" placeholder="maria@email.com" required>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label" for="freeUsernameInput">Usuário (Login)</label>
+          <input type="text" id="freeUsernameInput" name="username" class="form-input font-mono" placeholder="maria.free" minlength="3" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="freePasswordInput">Senha</label>
+          <input type="password" id="freePasswordInput" name="password" class="form-input" placeholder="Mín. 6 dígitos" minlength="6" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="freeDeviceInput">Nome do 1º Dispositivo</label>
+        <input type="text" id="freeDeviceInput" name="device_name" class="form-input" value="Meu Dispositivo" placeholder="Ex: Meu Celular ou PC">
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="registerFreeBtn" style="width: 100%; padding: 0.7rem; margin-top: 0.25rem;">
+        🚀 Ativar Plano Free Agora
+      </button>
+    </form>
+
     <div style="text-align: center; font-size: 0.78rem; color: var(--text-muted); border-top: 1px solid var(--border-subtle); padding-top: 1rem;">
       Proteção de Rede &bull; DNS Privado &bull; WireGuard VPN
     </div>
   </main>
 
   <script>
+    const tabBtnLogin = document.getElementById("tabBtnLogin");
+    const tabBtnRegister = document.getElementById("tabBtnRegister");
     const loginForm = document.getElementById("loginForm");
+    const registerFreeForm = document.getElementById("registerFreeForm");
     const loginError = document.getElementById("loginError");
     const submitBtn = document.getElementById("loginSubmitBtn");
+    const registerFreeBtn = document.getElementById("registerFreeBtn");
+
+    function switchMode(mode) {
+      loginError.style.display = "none";
+      if (mode === "register") {
+        tabBtnLogin.classList.remove("active");
+        tabBtnRegister.classList.add("active");
+        loginForm.style.display = "none";
+        registerFreeForm.style.display = "flex";
+      } else {
+        tabBtnRegister.classList.remove("active");
+        tabBtnLogin.classList.add("active");
+        registerFreeForm.style.display = "none";
+        loginForm.style.display = "flex";
+      }
+    }
+
+    tabBtnLogin.addEventListener("click", () => switchMode("login"));
+    tabBtnRegister.addEventListener("click", () => switchMode("register"));
 
     loginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -75,6 +183,32 @@
         loginError.style.display = "block";
         submitBtn.disabled = false;
         submitBtn.textContent = "Entrar no Painel";
+      }
+    });
+
+    registerFreeForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.style.display = "none";
+      registerFreeBtn.disabled = true;
+      registerFreeBtn.textContent = "Criando conta e gerando VPN...";
+
+      const formData = new FormData(registerFreeForm);
+      try {
+        const res = await fetch("/api/auth/register-free", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+          loginError.textContent = data.detail || "Não foi possível criar sua conta Free.";
+          loginError.style.display = "block";
+          registerFreeBtn.disabled = false;
+          registerFreeBtn.textContent = "🚀 Ativar Plano Free Agora";
+          return;
+        }
+        window.location.href = data.redirect || "/cliente";
+      } catch (err) {
+        loginError.textContent = "Erro de comunicação com o servidor.";
+        loginError.style.display = "block";
+        registerFreeBtn.disabled = false;
+        registerFreeBtn.textContent = "🚀 Ativar Plano Free Agora";
       }
     });
   </script>

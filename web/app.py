@@ -149,10 +149,22 @@ async def login_page(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/admin" if user["role"] == "admin" else "/cliente", status_code=302)
+    initial_mode = "register" if request.query_params.get("mode") == "register" else "login"
     return templates.TemplateResponse(
         request=request,
         name="login.html",
-        context={"page_title": "Entrar | NetShield DNS"}
+        context={"page_title": "Entrar | NetShield DNS", "initial_mode": initial_mode}
+    )
+
+@app.get("/gratis", response_class=HTMLResponse)
+async def free_signup_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/admin" if user["role"] == "admin" else "/cliente", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"page_title": "Versão Free Gratuita | NetShield DNS", "initial_mode": "register"}
     )
 
 @app.get("/logout")
@@ -244,6 +256,73 @@ async def api_login(response: Response, username: str = Form(...), password: str
         samesite="lax",
         max_age=SESSION_TTL_SECONDS
     )
+    return resp
+
+@app.post("/api/auth/register-free")
+async def api_register_free(
+    name: str = Form(...),
+    email: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    device_name: str = Form("Meu Dispositivo")
+):
+    clean_name = name.strip()
+    clean_email = email.strip()
+    clean_username = username.strip().lower()
+    clean_device = device_name.strip() or "Meu Dispositivo"
+
+    if len(clean_name) < 2:
+        raise HTTPException(status_code=400, detail="Informe seu nome completo.")
+    if "@" not in clean_email or "." not in clean_email:
+        raise HTTPException(status_code=400, detail="Informe um e-mail válido.")
+    if len(clean_username) < 3 or not clean_username.replace("_", "").replace(".", "").isalnum():
+        raise HTTPException(status_code=400, detail="O usuário deve ter pelo menos 3 caracteres (letras, números, . ou _).")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="A senha deve ter pelo menos 6 caracteres.")
+
+    free_plan = db.get_free_plan()
+    if not free_plan:
+        raise HTTPException(status_code=503, detail="Plano Free temporariamente indisponível.")
+
+    client_id = db.create_client(
+        name=clean_name,
+        email=clean_email,
+        phone="",
+        plan_id=free_plan["id"],
+        username=clean_username,
+        password=password,
+        notes="Cadastro automático - Versão Free"
+    )
+    if not client_id:
+        raise HTTPException(status_code=409, detail="Este usuário já está em uso. Escolha outro login.")
+
+    vpn_ip = db.get_next_vpn_ip()
+    priv_key, pub_key = wg_manager.generate_wg_keypair()
+    db.add_device(
+        client_id=client_id,
+        name=clean_device,
+        vpn_ip=vpn_ip,
+        wg_public_key=pub_key,
+        wg_private_key=priv_key
+    )
+    wg_manager.sync_wireguard_peers()
+
+    created_user = db.get_user_by_username(clean_username)
+    resp = JSONResponse({
+        "success": True,
+        "role": "client",
+        "redirect": "/cliente",
+        "message": "Conta Free criada com sucesso!"
+    })
+    if created_user:
+        token = create_session_token(created_user["id"], created_user["role"])
+        resp.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=token,
+            httponly=True,
+            samesite="lax",
+            max_age=SESSION_TTL_SECONDS
+        )
     return resp
 
 @app.post("/api/auth/change-password")

@@ -459,18 +459,18 @@
           <label class="form-label" for="planNameInput">Nome do Plano</label>
           <input type="text" id="planNameInput" name="name" class="form-input" placeholder="Ex: Plano Família" required>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+        <div class="form-grid-3">
           <div class="form-group">
             <label class="form-label" for="planPriceInput">Valor (R$)</label>
-            <input type="number" step="0.01" id="planPriceInput" name="price" class="form-input font-mono" value="29.90" required>
+            <input type="number" step="0.01" min="0" id="planPriceInput" name="price" class="form-input font-mono" value="29.90" required>
           </div>
           <div class="form-group">
             <label class="form-label" for="planDaysInput">Dias</label>
-            <input type="number" id="planDaysInput" name="duration_days" class="form-input font-mono" value="30" required>
+            <input type="number" min="1" id="planDaysInput" name="duration_days" class="form-input font-mono" value="30" required>
           </div>
           <div class="form-group">
             <label class="form-label" for="planMaxDevicesInput">Dispositivos</label>
-            <input type="number" id="planMaxDevicesInput" name="max_devices" class="form-input font-mono" value="3" required>
+            <input type="number" min="1" id="planMaxDevicesInput" name="max_devices" class="form-input font-mono" value="3" required>
           </div>
         </div>
         <div class="form-group">

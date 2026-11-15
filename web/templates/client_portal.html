@@ -31,7 +31,13 @@
       <div class="metric-card">
         <span class="metric-title">Seu Plano</span>
         <span class="metric-value" style="font-size: 1.4rem;">{{ client.plan_name or 'Personalizado' }}</span>
-        <span class="metric-sub">Proteção DNS + VPN Privada</span>
+        <span class="metric-sub">
+          {% if client.plan_price == 0 %}
+            <span class="badge badge-active" style="margin-right: 0.35rem;">VERSÃO FREE</span> Gratuito
+          {% else %}
+            Proteção DNS + VPN Privada
+          {% endif %}
+        </span>
       </div>
 
       <div class="metric-card">
