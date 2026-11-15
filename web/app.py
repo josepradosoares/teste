@@ -66,8 +66,13 @@ def is_admin_host(host_header: str, settings: dict) -> bool:
     if not host_header:
         return True
     host = host_header.split(":")[0].lower()
-    server_ip = settings.get("server_ip", "").strip()
-    return host in ["localhost", "127.0.0.1", "0.0.0.0", server_ip]
+    server_ip = settings.get("server_ip", "").strip().lower()
+    # If accessed by IP, localhost, or your DuckDNS / dynamic DNS domains, treat as admin!
+    if host in ["localhost", "127.0.0.1", "0.0.0.0", server_ip]:
+        return True
+    if host.endswith(".duckdns.org") or host.endswith(".ddns.net") or "painel" in host:
+        return True
+    return False
 
 # Root route
 @app.get("/", response_class=HTMLResponse)
