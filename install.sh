@@ -27,17 +27,23 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Detectar IP do servidor na rede local / internet
+# 2. Detectar IP do servidor (Público para nuvem ou Local)
 echo -e "${CYAN}[1/8] Detectando endereço IP do servidor...${NC}"
-SERVER_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7}' | head -n 1)
-if [ -z "$SERVER_IP" ]; then
-  SERVER_IP=$(hostname -I | awk '{print $1}')
-fi
 
-if [ -z "$SERVER_IP" ]; then
-  SERVER_IP="127.0.0.1"
+# Tentar obter o IP público primeiro (essencial para VPS na nuvem como Oracle Cloud, AWS, etc.)
+PUBLIC_IP=$(curl -s --connect-timeout 3 https://api.ipify.org 2>/dev/null || curl -s --connect-timeout 3 https://ifconfig.me 2>/dev/null || echo "")
+
+if [ -n "$PUBLIC_IP" ] && [[ "$PUBLIC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  SERVER_IP="$PUBLIC_IP"
+  echo -e "${GREEN}✓ IP Público detectado: ${SERVER_IP}${NC}"
+else
+  LOCAL_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7}' | head -n 1)
+  if [ -z "$LOCAL_IP" ]; then
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
+  fi
+  SERVER_IP="${LOCAL_IP:-127.0.0.1}"
+  echo -e "${GREEN}✓ IP Local detectado: ${SERVER_IP}${NC}"
 fi
-echo -e "${GREEN}✓ IP detectado: ${SERVER_IP}${NC}"
 
 # 3. Atualizar repositórios e instalar pacotes essenciais
 echo -e "\n${CYAN}[2/8] Instalando dependências (dnsmasq, nginx, python3, openssl)...${NC}"
