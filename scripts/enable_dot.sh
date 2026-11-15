@@ -45,14 +45,13 @@ else
 fi
 
 # 3. Configurar Nginx Stream para DoT (Porta 853 TLS -> dnsmasq porta 53)
-echo -e "\n${CYAN}[3/5] Configurando terminação TLS na porta 853 (DNS over TLS)...${NC}"
-mkdir -p /etc/nginx/modules-enabled
+mkdir -p /etc/nginx/modules-enabled /etc/nginx/streams.d
 
 cat << EOF > /etc/nginx/modules-enabled/50-mod-stream.conf
 load_module /usr/lib/nginx/modules/ngx_stream_module.so;
 EOF
 
-cat << EOF > /etc/nginx/conf.d/dot_stream.conf
+cat << EOF > /etc/nginx/streams.d/dot_stream.conf
 # Proxy DNS over TLS (Porta 853) para dnsmasq (127.0.0.1:53)
 stream {
     upstream dns_servers {
@@ -75,9 +74,9 @@ stream {
 }
 EOF
 
-# Incluir stream no /etc/nginx/nginx.conf caso não esteja incluído
-if ! grep -q "include /etc/nginx/conf.d/dot_stream.conf;" /etc/nginx/nginx.conf; then
-  echo "include /etc/nginx/conf.d/dot_stream.conf;" >> /etc/nginx/nginx.conf
+# Incluir stream no /etc/nginx/nginx.conf caso não esteja incluído no nível raiz
+if ! grep -q "include /etc/nginx/streams.d/\*.conf;" /etc/nginx/nginx.conf; then
+  echo "include /etc/nginx/streams.d/*.conf;" >> /etc/nginx/nginx.conf
 fi
 
 # 4. Liberar porta 853 no Firewall iptables
