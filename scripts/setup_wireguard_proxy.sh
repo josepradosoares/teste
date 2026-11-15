@@ -95,8 +95,8 @@ ListenPort = ${WG_PORT}
 PrivateKey = ${SERVER_PRIV_KEY}
 
 # Regras de NAT e DNS sinkhole para clientes da VPN
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 80 -d 152.67.44.54 -j ACCEPT; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 80 -j REDIRECT --to-ports 12345; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 443 -j REDIRECT --to-ports 12345
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 80 -d 152.67.44.54 -j ACCEPT; iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 80 -j REDIRECT --to-ports 12345; iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 443 -j REDIRECT --to-ports 12345
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -j MASQUERADE
 
 [Peer]
 # Cliente Windows / Celular
