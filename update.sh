@@ -113,13 +113,20 @@ systemctl restart netshield-firewall.service
 DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent netfilter-persistent 2>/dev/null || true
 netfilter-persistent save 2>/dev/null || true
 
+echo -e "\n${CYAN}[5/7] Configurando Fuso Horário (São Paulo - Brasil)...${NC}"
+timedatectl set-timezone America/Sao_Paulo || true
+echo -e "${GREEN}✓ Fuso horário configurado para $(timedatectl | grep "Time zone" || date)${NC}"
+
 echo -e "\n${CYAN}[6/7] Habilitando e iniciando todos os serviços essenciais...${NC}"
 cp "${REPO_DIR}/config/netshield.service" /etc/systemd/system/netshield.service
 systemctl daemon-reload
 systemctl enable netshield.service dnsmasq nginx
 systemctl restart dnsmasq
-systemctl restart nginx
 systemctl restart netshield.service
+systemctl restart nginx
+
+# Aguardar 2 segundos para o FastAPI iniciar na porta 8080
+sleep 2
 
 echo -e "\n${CYAN}[7/7] Executando testes automatizados do sistema...${NC}"
 # Teste HTTP
