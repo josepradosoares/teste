@@ -89,23 +89,33 @@ def reload_dnsmasq_service() -> bool:
             continue
     return False
 
+_last_log_position = 0
+
 def parse_dnsmasq_log_stream():
     """
-    Parses new queries from dnsmasq log file.
-    Dnsmasq query log format:
-    Nov 15 14:20:10 dnsmasq[123]: query[A] google.com from 192.168.1.55
-    Nov 15 14:20:10 dnsmasq[123]: /etc/dnsmasq.d/netshield_blocked.conf tiktok.com is 192.168.1.100
+    Incrementally reads new queries from dnsmasq log file without repeating old lines.
     """
+    global _last_log_position
     if not os.path.exists(DNSMASQ_LOG_PATH):
         return
 
-    # Regular expressions for dnsmasq log entries
     query_pattern = re.compile(r"query\[(?P<type>[^\]]+)\]\s+(?P<domain>\S+)\s+from\s+(?P<ip>\S+)")
-    
     from database import get_blocked_domain_info
+    
     try:
+        current_size = os.path.getsize(DNSMASQ_LOG_PATH)
+        if current_size < _last_log_position:
+            _last_log_position = 0 # Log was rotated
+
         with open(DNSMASQ_LOG_PATH, "r", errors="ignore") as f:
-            lines = f.readlines()[-60:]
+            if _last_log_position == 0 and current_size > 5000:
+                f.seek(current_size - 4000) # Start near the end on first run
+            else:
+                f.seek(_last_log_position)
+
+            lines = f.readlines()
+            _last_log_position = f.tell()
+
             for line in lines:
                 m = query_pattern.search(line)
                 if m:
@@ -114,7 +124,6 @@ def parse_dnsmasq_log_stream():
                     ip = m.group("ip")
                     if domain.endswith("."):
                         domain = domain[:-1]
-                    # Check if domain or its parent domain is blocked
                     is_blocked = get_blocked_domain_info(domain) is not None
                     status = "BLOCKED" if is_blocked else "ALLOWED"
                     log_query(client_ip=ip, domain=domain, status=status, query_type=qtype)
