@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetShield DNS | Painel de Controle de Acesso</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-wrapper">
+        <div class="brand-icon">🛡️</div>
+        <div>
+          <span class="brand-name">NetShield DNS</span>
+          <span class="brand-tag">Painel de Acesso</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="live-indicator">
+          <span class="live-dot"></span>
+          <span>DNS Ativo (<strong id="headerServerIp" class="font-mono">{{ settings.get('server_ip', '127.0.0.1') }}</strong>)</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnSyncDns" title="Sincroniza e recarrega regras no dnsmasq">
+          <span>🔄</span> Recarregar DNS
+        </button>
+        <a href="/blocked?domain=exemplo-teste.com" target="_blank" class="btn btn-secondary btn-sm" title="Visualizar página de bloqueio">
+          <span>👁️</span> Ver Página de Bloqueio
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="app-main">
+
+    <!-- KPI Metrics -->
+    <section class="metrics-grid" aria-label="Métricas do Servidor">
+      <div class="metric-card">
+        <span class="metric-title">Total de Consultas</span>
+        <span class="metric-value" id="statTotalQueries">0</span>
+        <span class="metric-sub">Requisições DNS processadas</span>
+      </div>
+
+      <div class="metric-card blocked-metric">
+        <span class="metric-title">Acessos Bloqueados</span>
+        <span class="metric-value" id="statTotalBlocked">0</span>
+        <span class="metric-sub">Sites restritos interceptados</span>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-title">Taxa de Bloqueio</span>
+        <span class="metric-value" id="statBlockRate">0%</span>
+        <span class="metric-sub">Percentual de tráfego filtrado</span>
+      </div>
+
+      <div class="metric-card allowed-metric">
+        <span class="metric-title">Domínios na Blocklist</span>
+        <span class="metric-value" id="statActiveRules">0</span>
+        <span class="metric-sub">Regras ativas no dnsmasq</span>
+      </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-navigation" aria-label="Abas do Painel">
+      <button class="tab-btn active" data-tab="tab-logs">
+        <span>📋</span> Monitor de Consultas
+        <span class="tab-badge" id="badgeLogCount">50</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-domains">
+        <span>🚫</span> Regras de Bloqueio
+        <span class="tab-badge" id="badgeDomainCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-requests">
+        <span>✉️</span> Solicitações
+        <span class="tab-badge" id="badgeRequestCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-settings">
+        <span>⚙️</span> Configurações & Instruções
+      </button>
+    </nav>
+
+    <!-- TAB 1: Real-time Query Monitor -->
+    <section id="tab-logs" class="tab-content active">
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Consultas em Tempo Real</h2>
+            <p class="surface-desc">Lista detalhada de requisições DNS originadas pelos dispositivos da rede.</p>
+          </div>
+          <div class="controls-bar">
+            <input type="text" id="logSearchInput" class="search-input" placeholder="Buscar por domínio ou IP...">
+            <select id="logStatusFilter" class="select-input">
+              <option value="">Todos os Status</option>
+              <option value="BLOCKED">Apenas Bloqueados</option>
+              <option value="ALLOWED">Apenas Permitidos</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshLogs">
+              <span>🔄</span> Atualizar
+            </button>
+            <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer;">
+              <input type="checkbox" id="autoRefreshCheckbox" checked> Auto (5s)
+            </label>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Horário</th>
+                <th>IP do Dispositivo</th>
+                <th>Domínio Solicitado</th>
+                <th>Tipo</th>
+                <th>Status</th>
+                <th>Ação Rápida</th>
+              </tr>
+            </thead>
+            <tbody id="logsTableBody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Carregando consultas...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Blocked Domains Management -->
+    <section id="tab-domains" class="tab-content">
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Domínios Bloqueados (Sinkhole)</h2>
+            <p class="surface-desc">Domínios que serão direcionados para a página de bloqueio personalizada.</p>
+          </div>
+          <div class="controls-bar">
+            <input type="text" id="domainSearchInput" class="search-input" placeholder="Pesquisar domínio cadastrado...">
+            <button type="button" class="btn btn-secondary" id="btnOpenBulkModal">
+              <span>📄</span> Importar em Massa
+            </button>
+            <button type="button" class="btn btn-primary" id="btnOpenAddModal">
+              <span>➕</span> Novo Bloqueio
+            </button>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Domínio</th>
+                <th>Categoria</th>
+                <th>Motivo Exibido ao Usuário</th>
+                <th>Bloqueios (Hits)</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="domainsTableBody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Carregando lista de regras...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Unblock Requests -->
+    <section id="tab-requests" class="tab-content">
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Solicitações de Desbloqueio</h2>
+            <p class="surface-desc">Justificativas enviadas por usuários diretamente a partir da tela de aviso.</p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshRequests">
+            <span>🔄</span> Atualizar Pedidos
+          </button>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Domínio</th>
+                <th>IP de Origem</th>
+                <th>Justificativa do Usuário</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="requestsTableBody">
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">Nenhuma solicitação pendente.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: Settings & Instructions -->
+    <section id="tab-settings" class="tab-content">
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Configurações do Servidor</h2>
+            <p class="surface-desc">Parâmetros operacionais do serviço DNS e da página de bloqueio.</p>
+          </div>
+        </div>
+
+        <form id="settingsForm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label" for="settingServerIp">IP do Servidor (Sinkhole IP)</label>
+            <input type="text" id="settingServerIp" name="server_ip" class="form-input font-mono" value="{{ settings.get('server_ip', '192.168.1.100') }}" required>
+            <small style="color: var(--text-muted); font-size: 0.76rem;">Endereço IP para o qual os domínios bloqueados serão apontados.</small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="settingUpstream">Servidores DNS Upstream</label>
+            <input type="text" id="settingUpstream" name="upstream_dns" class="form-input font-mono" value="{{ settings.get('upstream_dns', '1.1.1.1, 8.8.8.8') }}" required>
+            <small style="color: var(--text-muted); font-size: 0.76rem;">Servidores externos que resolvem sites permitidos (ex: Cloudflare, Google).</small>
+          </div>
+
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label" for="settingBlockMsg">Mensagem Padrão de Bloqueio</label>
+            <input type="text" id="settingBlockMsg" name="block_message_default" class="form-input" value="{{ settings.get('block_message_default', 'Acesso não permitido pelas regras de segurança da rede.') }}" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="settingContact">E-mail de Suporte / Admin</label>
+            <input type="email" id="settingContact" name="admin_contact" class="form-input" value="{{ settings.get('admin_contact', 'suporte@empresa.local') }}" required>
+          </div>
+
+          <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+            <button type="submit" class="btn btn-primary">
+              <span>💾</span> Salvar Configurações
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Quick Setup Guide -->
+      <div class="surface-card">
+        <h3 style="font-size: 1.05rem; font-weight: 600; margin-bottom: 0.75rem;">Como Configurar os Dispositivos para Usar Este DNS</h3>
+        <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 1rem;">
+          Para que o bloqueio funcione nos computadores e celulares, configure o IP deste servidor como o <strong>DNS Primário</strong>:
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; font-size: 0.84rem;">
+          <div style="background-color: var(--bg-surface-elevated); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <strong style="display: block; margin-bottom: 0.35rem; color: var(--text-primary);">🌐 No Roteador (Recomendado):</strong>
+            <span style="color: var(--text-secondary);">Acesse o roteador da sua rede (ex: 192.168.1.1) &rarr; Configurações DHCP &rarr; Defina o <strong>DNS Primário</strong> com o IP deste servidor. Todos os dispositivos da rede serão protegidos automaticamente!</span>
+          </div>
+          <div style="background-color: var(--bg-surface-elevated); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <strong style="display: block; margin-bottom: 0.35rem; color: var(--text-primary);">💻 No Windows:</strong>
+            <span style="color: var(--text-secondary);">Configurações &rarr; Rede e Internet &rarr; Propriedades do Wi-Fi/Ethernet &rarr; Atribuição de DNS &rarr; Manual (IPv4) &rarr; DNS Preferencial = IP deste servidor.</span>
+          </div>
+          <div style="background-color: var(--bg-surface-elevated); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <strong style="display: block; margin-bottom: 0.35rem; color: var(--text-primary);">🐧 No Linux:</strong>
+            <span style="color: var(--text-secondary);">Edite o arquivo <code>/etc/resolv.conf</code> adicionando a linha <code>nameserver IP_DO_SERVIDOR</code> ou ajuste via NetworkManager.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal: Add New Blocked Domain -->
+  <div class="modal-overlay" id="addDomainModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Cadastrar Novo Bloqueio</h3>
+        <button type="button" class="modal-close" id="closeAddModal">&times;</button>
+      </div>
+
+      <form id="addDomainForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <div class="form-group">
+          <label class="form-label" for="newDomainInput">Domínio do Site</label>
+          <input type="text" id="newDomainInput" name="domain" class="form-input font-mono" placeholder="ex: tiktok.com ou betano.com" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="newCategorySelect">Categoria</label>
+          <select id="newCategorySelect" name="category" class="form-select">
+            <option value="Redes Sociais">Redes Sociais</option>
+            <option value="Apostas">Apostas e Cassinos</option>
+            <option value="Adulto">Conteúdo Adulto</option>
+            <option value="P2P / Torrent">P2P e Compartilhamento</option>
+            <option value="Jogos">Jogos Online</option>
+            <option value="Segurança / Malware">Segurança / Malware</option>
+            <option value="Geral" selected>Geral / Outros</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="newReasonInput">Motivo do Bloqueio (Exibido na tela)</label>
+          <textarea id="newReasonInput" name="reason" rows="3" class="form-textarea" placeholder="Ex: Este site não é permitido durante o horário de trabalho conforme política interna..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelAddBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Adicionar Regra</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Bulk Import -->
+  <div class="modal-overlay" id="bulkModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Importação de Domínios em Massa</h3>
+        <button type="button" class="modal-close" id="closeBulkModal">&times;</button>
+      </div>
+
+      <form id="bulkForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+          Cole uma lista de domínios, um por linha (sem http/https).
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="bulkDomainsText">Lista de Domínios</label>
+          <textarea id="bulkDomainsText" name="domains_text" rows="6" class="form-textarea font-mono" placeholder="exemplo1.com&#10;exemplo2.com&#10;exemplo3.com" required></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="bulkCategory">Categoria para estes itens</label>
+          <select id="bulkCategory" name="category" class="form-select">
+            <option value="Redes Sociais">Redes Sociais</option>
+            <option value="Apostas">Apostas</option>
+            <option value="Adulto">Adulto</option>
+            <option value="Geral" selected>Geral</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="bulkReason">Motivo do Bloqueio</label>
+          <input type="text" id="bulkReason" name="reason" class="form-input" value="Bloqueio administrativo via lista de regras">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelBulkBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Importar Todos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+[Unit]
+Description=NetShield DNS Web Control Panel & API
+After=network.target dnsmasq.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/netshield/web
+ExecStart=/opt/netshield/venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db
+Environment=NETSHIELD_DNSMASQ_CONF=/etc/dnsmasq.d/netshield_blocked.conf
+Environment=NETSHIELD_LOG_PATH=/var/log/dnsmasq.log
+
+[Install]
+WantedBy=multi-user.target
