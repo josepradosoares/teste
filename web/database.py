@@ -3,7 +3,8 @@ import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-DB_PATH = os.environ.get("NETSHIELD_DB_PATH", os.path.join(os.path.dirname(__file__), "netshield.db"))
+DEFAULT_DB = "/opt/netshield/data/netshield.db" if os.path.isdir("/opt/netshield/data") else os.path.join(os.path.dirname(__file__), "netshield.db")
+DB_PATH = os.environ.get("NETSHIELD_DB_PATH", DEFAULT_DB)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
