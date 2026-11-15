@@ -102,20 +102,21 @@ def parse_dnsmasq_log_stream():
     # Regular expressions for dnsmasq log entries
     query_pattern = re.compile(r"query\[(?P<type>[^\]]+)\]\s+(?P<domain>\S+)\s+from\s+(?P<ip>\S+)")
     
+    from database import get_blocked_domain_info
     try:
         with open(DNSMASQ_LOG_PATH, "r", errors="ignore") as f:
-            # Read last 100 lines
-            lines = f.readlines()[-100:]
+            lines = f.readlines()[-60:]
             for line in lines:
                 m = query_pattern.search(line)
                 if m:
                     qtype = m.group("type")
                     domain = m.group("domain").lower()
                     ip = m.group("ip")
-                    # Check if domain is blocked
-                    # If line has blocklist mentioned or matches blocked list
-                    status = "ALLOWED"
-                    # log to db
+                    if domain.endswith("."):
+                        domain = domain[:-1]
+                    # Check if domain or its parent domain is blocked
+                    is_blocked = get_blocked_domain_info(domain) is not None
+                    status = "BLOCKED" if is_blocked else "ALLOWED"
                     log_query(client_ip=ip, domain=domain, status=status, query_type=qtype)
     except Exception as e:
         logger.error(f"Error parsing log file: {e}")

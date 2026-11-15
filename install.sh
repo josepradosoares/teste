@@ -120,8 +120,19 @@ dns_manager.sync_dnsmasq_blocklist()
 systemctl restart dnsmasq
 systemctl enable dnsmasq
 
-# 8. Instalar e iniciar o serviço systemd
-echo -e "\n${CYAN}[8/8] Criando e iniciando o serviço NetShield Web Panel...${NC}"
+# 8. Liberar Firewall interno no Linux (Portas 80, 443 e 53)
+echo -e "\n${CYAN}[8/9] Configurando regras de Firewall local (iptables)...${NC}"
+iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
+iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
+iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+# Tentar persistir regras se iptables-persistent estiver instalado
+if command -v netfilter-persistent >/dev/null 2>&1; then
+  netfilter-persistent save >/dev/null 2>&1 || true
+fi
+
+# 9. Instalar e iniciar o serviço systemd
+echo -e "\n${CYAN}[9/9] Criando e iniciando o serviço NetShield Web Panel...${NC}"
 cp "${SCRIPT_DIR}/config/netshield.service" /etc/systemd/system/netshield.service
 systemctl daemon-reload
 systemctl enable netshield.service
