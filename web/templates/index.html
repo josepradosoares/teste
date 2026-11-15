@@ -20,6 +20,11 @@
       </div>
 
       <div class="header-actions">
+        <div class="live-indicator" style="background-color: var(--bg-surface-elevated); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+          <span>🕒</span>
+          <span id="liveClock" class="font-mono" style="font-size: 0.82rem; font-weight: 500;">--:--:--</span>
+          <span style="font-size: 0.7rem; color: var(--text-muted);">(BRT)</span>
+        </div>
         <div class="live-indicator">
           <span class="live-dot"></span>
           <span>DNS Ativo (<strong id="headerServerIp" class="font-mono">{{ settings.get('server_ip', '127.0.0.1') }}</strong>)</span>
