@@ -34,8 +34,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard wireguard-tools qren
 
 echo -e "\n${CYAN}[2/6] Habilitando Roteamento IPv4 no Kernel...${NC}"
 sysctl -w net.ipv4.ip_forward=1
-sed -i -e '/^net.ipv4.ip_forward=/d' /etc/sysctl.conf
-echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+mkdir -p /etc/sysctl.d
+cat << 'EOF' > /etc/sysctl.d/99-wireguard.conf
+net.ipv4.ip_forward=1
+EOF
+sysctl -p /etc/sysctl.d/99-wireguard.conf || true
 
 echo -e "\n${CYAN}[3/6] Configurando Redsocks com Proxy Rotativo Webshare...${NC}"
 # Configuração do Redsocks para redirecionar tráfego TCP para o proxy da Webshare
