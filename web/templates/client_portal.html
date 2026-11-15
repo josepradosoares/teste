@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal do Assinante | NetShield DNS</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-wrapper">
+        <div class="brand-icon">🛡️</div>
+        <div>
+          <span class="brand-name">NetShield DNS</span>
+          <span class="brand-tag">Portal do Assinante</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <span style="font-size: 0.85rem; color: var(--text-secondary);">Olá, <strong style="color: var(--text-primary);">{{ client.name if client else user.username }}</strong></span>
+        <a href="/logout" class="btn btn-secondary btn-sm">Sair</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    {% if client %}
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <span class="metric-title">Seu Plano</span>
+        <span class="metric-value" style="font-size: 1.4rem;">{{ client.plan_name or 'Personalizado' }}</span>
+        <span class="metric-sub">Proteção DNS + VPN Privada</span>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-title">Status da Assinatura</span>
+        <div style="margin: 0.25rem 0;">
+          {% if client.status == 'ACTIVE' %}
+            <span class="badge badge-active">ATIVO</span>
+          {% elif client.status == 'SUSPENDED' %}
+            <span class="badge badge-suspended">SUSPENSO</span>
+          {% else %}
+            <span class="badge badge-expired">EXPIRADO</span>
+          {% endif %}
+        </div>
+        <span class="metric-sub">Válido até: <span class="font-mono">{{ client.expires_at[:10] }}</span></span>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-title">Dispositivos Conectados</span>
+        <span class="metric-value">{{ devices|length }} / {{ client.max_devices or 2 }}</span>
+        <span class="metric-sub">Limite do seu plano atual</span>
+      </div>
+    </section>
+
+    <section class="surface-card">
+      <div class="surface-header">
+        <div>
+          <h2 class="surface-title">Meus Dispositivos (WireGuard VPN + DNS)</h2>
+          <p class="surface-desc">Baixe o arquivo de configuração para Windows ou escaneie o QR Code no aplicativo WireGuard do seu celular.</p>
+        </div>
+        <button type="button" class="btn btn-primary" id="btnAddMyDevice">
+          <span>➕</span> Novo Dispositivo
+        </button>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nome do Dispositivo</th>
+              <th>IP na VPN</th>
+              <th>Criado em</th>
+              <th>Conexão / Acesso</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if devices %}
+              {% for dev in devices %}
+              <tr>
+                <td style="font-weight: 600;">{{ dev.name }}</td>
+                <td class="font-mono">{{ dev.vpn_ip }}</td>
+                <td class="font-mono" style="font-size: 0.8rem; color: var(--text-secondary);">{{ dev.created_at }}</td>
+                <td>
+                  <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openQrModal({{ dev.id }})">📱 QR Code</button>
+                    <a href="/api/devices/{{ dev.id }}/config" class="btn btn-secondary btn-sm">⬇️ Baixar .conf</a>
+                  </div>
+                </td>
+                <td>
+                  <button type="button" class="btn btn-danger btn-sm" onclick="removeMyDevice({{ dev.id }})">Remover</button>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  Nenhum dispositivo cadastrado ainda. Clique em "Novo Dispositivo" para gerar seu acesso VPN.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% else %}
+    <section class="surface-card">
+      <h2 class="surface-title">Conta sem assinatura vinculada</h2>
+      <p class="surface-desc">Entre em contato com o suporte ({{ settings.get('admin_contact', 'suporte@rede.local') }}) para ativar seu plano.</p>
+    </section>
+    {% endif %}
+  </main>
+
+  <!-- Modal Add Device -->
+  <div class="modal-overlay" id="addDeviceModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Adicionar Dispositivo</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('addDeviceModal').classList.remove('active')">&times;</button>
+      </div>
+      <form id="addDeviceForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <div class="form-group">
+          <label class="form-label" for="deviceNameInput">Nome do Aparelho</label>
+          <input type="text" id="deviceNameInput" name="name" class="form-input" placeholder="Ex: Meu Celular, Notebook Trabalho" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('addDeviceModal').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Gerar Acesso VPN</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal QR Code -->
+  <div class="modal-overlay" id="qrModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="qrDeviceTitle">Conectar Dispositivo</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('qrModal').classList.remove('active')">&times;</button>
+      </div>
+      <div id="qrSvgContainer" class="qr-box"></div>
+      <p style="font-size: 0.82rem; color: var(--text-secondary); text-align: center;">
+        Abra o aplicativo <strong>WireGuard</strong> no celular &rarr; toque em <strong>+</strong> &rarr; <strong>Escanear código QR</strong>.
+      </p>
+      <textarea id="qrConfigText" class="form-textarea font-mono" rows="6" readonly style="font-size: 0.76rem;"></textarea>
+      <div class="modal-footer">
+        <a id="qrDownloadLink" href="#" class="btn btn-primary">⬇️ Baixar .conf (Windows)</a>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('qrModal').classList.remove('active')">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const clientId = {{ client.id if client else 'null' }};
+    const addDeviceBtn = document.getElementById("btnAddMyDevice");
+    const addDeviceModal = document.getElementById("addDeviceModal");
+    const addDeviceForm = document.getElementById("addDeviceForm");
+
+    if (addDeviceBtn) {
+      addDeviceBtn.addEventListener("click", () => {
+        addDeviceForm.reset();
+        addDeviceModal.classList.add("active");
+      });
+    }
+
+    if (addDeviceForm && clientId) {
+      addDeviceForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fd = new FormData(addDeviceForm);
+        const res = await fetch(`/api/clients/${clientId}/devices`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.detail || "Erro ao adicionar dispositivo.");
+          return;
+        }
+        window.location.reload();
+      });
+    }
+
+    window.openQrModal = async function(deviceId) {
+      const res = await fetch(`/api/devices/${deviceId}/qr`);
+      const data = await res.json();
+      if (!res.ok) return alert(data.detail || "Erro ao carregar QR Code.");
+      document.getElementById("qrDeviceTitle").textContent = `VPN: ${data.device.name} (${data.device.vpn_ip})`;
+      document.getElementById("qrSvgContainer").innerHTML = data.qr_svg;
+      document.getElementById("qrConfigText").value = data.config_text;
+      document.getElementById("qrDownloadLink").href = `/api/devices/${deviceId}/config`;
+      document.getElementById("qrModal").classList.add("active");
+    };
+
+    window.removeMyDevice = async function(deviceId) {
+      if (!confirm("Remover este dispositivo? Ele perderá o acesso à VPN imediatamente.")) return;
+      const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
+      if (res.ok) window.location.reload();
+    };
+  </script>
+</body>
+</html>

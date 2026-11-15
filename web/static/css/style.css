@@ -641,3 +641,129 @@ body {
     min-width: 100%;
   }
 }
+
+/* Status Badges for Clients / Subscriptions */
+.badge-active {
+  background-color: var(--status-allowed-subtle);
+  color: var(--status-allowed);
+  border: 1px solid hsla(152, 68%, 42%, 0.25);
+}
+
+.badge-suspended {
+  background-color: var(--status-warning-subtle);
+  color: var(--status-warning);
+  border: 1px solid hsla(38, 92%, 50%, 0.25);
+}
+
+.badge-expired {
+  background-color: var(--status-blocked-subtle);
+  color: var(--status-blocked);
+  border: 1px solid hsla(0, 72%, 52%, 0.25);
+}
+
+/* Plan Cards Grid */
+.plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 1.25rem;
+}
+
+.plan-card {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.plan-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.plan-price {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.plan-price span {
+  font-size: 0.84rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* Category Packs Grid */
+.categories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.category-pack {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* QR Code Display Box */
+.qr-box {
+  background-color: #ffffff;
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.wg-qr-svg {
+  width: 210px;
+  height: 210px;
+  display: block;
+}
+
+/* Login Screen */
+.login-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1.5rem;
+}
+
+.login-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 2.25rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.login-error {
+  background-color: var(--status-blocked-subtle);
+  border: 1px solid hsla(0, 72%, 52%, 0.3);
+  color: var(--status-blocked);
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  display: none;
+}
+

@@ -1,31 +1,57 @@
-// NetShield DNS - Client-side Application Logic
+// NetShield DNS Commercial Platform - Client-side Application Logic
 document.addEventListener("DOMContentLoaded", () => {
-  // State
   let autoRefreshTimer = null;
   let activeTab = "tab-logs";
 
-  // Elements
   const tabs = document.querySelectorAll(".tab-btn");
   const tabContents = document.querySelectorAll(".tab-content");
   const toastContainer = document.getElementById("toastContainer");
 
-  // Metrics Elements
+  // KPI Elements
+  const statActiveSubscribers = document.getElementById("statActiveSubscribers");
+  const statMrr = document.getElementById("statMrr");
+  const statTotalDevices = document.getElementById("statTotalDevices");
   const statTotalQueries = document.getElementById("statTotalQueries");
   const statTotalBlocked = document.getElementById("statTotalBlocked");
   const statBlockRate = document.getElementById("statBlockRate");
   const statActiveRules = document.getElementById("statActiveRules");
+
   const badgeLogCount = document.getElementById("badgeLogCount");
+  const badgeClientCount = document.getElementById("badgeClientCount");
+  const badgePlanCount = document.getElementById("badgePlanCount");
   const badgeDomainCount = document.getElementById("badgeDomainCount");
   const badgeRequestCount = document.getElementById("badgeRequestCount");
 
-  // Tab 1 Elements (Logs)
+  // Logs Elements
   const logsTableBody = document.getElementById("logsTableBody");
   const logSearchInput = document.getElementById("logSearchInput");
   const logStatusFilter = document.getElementById("logStatusFilter");
   const btnRefreshLogs = document.getElementById("btnRefreshLogs");
   const autoRefreshCheckbox = document.getElementById("autoRefreshCheckbox");
 
-  // Tab 2 Elements (Domains)
+  // Clients Elements
+  const clientsTableBody = document.getElementById("clientsTableBody");
+  const clientSearchInput = document.getElementById("clientSearchInput");
+  const btnOpenAddClientModal = document.getElementById("btnOpenAddClientModal");
+  const addClientModal = document.getElementById("addClientModal");
+  const closeAddClientModal = document.getElementById("closeAddClientModal");
+  const cancelAddClientBtn = document.getElementById("cancelAddClientBtn");
+  const addClientForm = document.getElementById("addClientForm");
+  const clientPlanSelect = document.getElementById("clientPlanSelect");
+  const clientDevicesModal = document.getElementById("clientDevicesModal");
+  const clientDevicesTableBody = document.getElementById("clientDevicesTableBody");
+  const adminAddDeviceForm = document.getElementById("adminAddDeviceForm");
+
+  // Plans Elements
+  const plansGrid = document.getElementById("plansGrid");
+  const btnOpenAddPlanModal = document.getElementById("btnOpenAddPlanModal");
+  const addPlanModal = document.getElementById("addPlanModal");
+  const closeAddPlanModal = document.getElementById("closeAddPlanModal");
+  const cancelAddPlanBtn = document.getElementById("cancelAddPlanBtn");
+  const addPlanForm = document.getElementById("addPlanForm");
+
+  // Domains & Categories Elements
+  const categoriesGrid = document.getElementById("categoriesGrid");
   const domainsTableBody = document.getElementById("domainsTableBody");
   const domainSearchInput = document.getElementById("domainSearchInput");
   const btnOpenAddModal = document.getElementById("btnOpenAddModal");
@@ -39,15 +65,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const cancelBulkBtn = document.getElementById("cancelBulkBtn");
   const bulkForm = document.getElementById("bulkForm");
 
-  // Tab 3 Elements (Requests)
+  // Requests & Settings
   const requestsTableBody = document.getElementById("requestsTableBody");
   const btnRefreshRequests = document.getElementById("btnRefreshRequests");
-
-  // Tab 4 Elements (Settings)
   const settingsForm = document.getElementById("settingsForm");
+  const changePasswordForm = document.getElementById("changePasswordForm");
   const btnSyncDns = document.getElementById("btnSyncDns");
 
-  // Toast Function
   function showToast(message, type = "success") {
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
@@ -62,8 +86,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function escapeHtml(str) {
-    if (!str) return "";
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function handleAuthError(res) {
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return true;
+    }
+    return false;
   }
 
   // Tab Switching
@@ -76,19 +112,26 @@ document.addEventListener("DOMContentLoaded", () => {
       const targetContent = document.getElementById(activeTab);
       if (targetContent) targetContent.classList.add("active");
 
-      // Load specific tab data on switch
-      if (activeTab === "tab-domains") loadBlockedDomains();
-      if (activeTab === "tab-requests") loadUnblockRequests();
       if (activeTab === "tab-logs") loadQueryLogs();
+      if (activeTab === "tab-clients") loadClients();
+      if (activeTab === "tab-plans") loadPlans();
+      if (activeTab === "tab-domains") {
+        loadCategories();
+        loadBlockedDomains();
+      }
+      if (activeTab === "tab-requests") loadUnblockRequests();
     });
   });
 
-  // Fetch KPI Stats
+  // Load KPI Stats
   async function loadStats() {
     try {
       const res = await fetch("/api/stats");
-      if (!res.ok) return;
+      if (handleAuthError(res) || !res.ok) return;
       const data = await res.json();
+      statActiveSubscribers.textContent = (data.active_subscribers || 0).toLocaleString();
+      statMrr.textContent = `R$ ${(data.mrr || 0).toFixed(2).replace(".", ",")}`;
+      statTotalDevices.textContent = (data.total_devices || 0).toLocaleString();
       statTotalQueries.textContent = (data.total_queries || 0).toLocaleString();
       statTotalBlocked.textContent = (data.total_blocked || 0).toLocaleString();
       statBlockRate.textContent = `${data.block_rate || 0}%`;
@@ -99,7 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Load Query Logs
+  // ==================== LOGS ====================
   async function loadQueryLogs() {
     try {
       const search = logSearchInput.value.trim();
@@ -109,19 +152,16 @@ document.addEventListener("DOMContentLoaded", () => {
       if (status) url += `&filter_status=${encodeURIComponent(status)}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error("Erro ao carregar logs");
+      if (handleAuthError(res) || !res.ok) return;
       const data = await res.json();
       const logs = data.logs || [];
       badgeLogCount.textContent = logs.length;
 
       if (logs.length === 0) {
         logsTableBody.innerHTML = `
-          <tr>
-            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">
-              Nenhuma consulta DNS encontrada com os filtros atuais.
-            </td>
-          </tr>
-        `;
+          <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:2rem;">
+            Nenhuma consulta DNS registrada ainda.
+          </td></tr>`;
         return;
       }
 
@@ -129,28 +169,320 @@ document.addEventListener("DOMContentLoaded", () => {
         const isBlocked = item.status === "BLOCKED";
         const badgeClass = isBlocked ? "badge-blocked" : "badge-allowed";
         const statusLabel = isBlocked ? "BLOQUEADO" : "PERMITIDO";
-
         const quickActionBtn = isBlocked
           ? `<button class="btn btn-secondary btn-sm" onclick="window.quickUnblock('${escapeHtml(item.domain)}')">Desbloquear</button>`
           : `<button class="btn btn-danger btn-sm" onclick="window.quickBlockPrompt('${escapeHtml(item.domain)}')">Bloquear</button>`;
 
         return `
           <tr>
-            <td class="font-mono" style="color: var(--text-secondary); font-size: 0.78rem;">${escapeHtml(item.timestamp)}</td>
+            <td class="font-mono" style="color:var(--text-secondary); font-size:0.78rem;">${escapeHtml(item.timestamp)}</td>
             <td class="font-mono">${escapeHtml(item.client_ip)}</td>
-            <td class="font-mono" style="font-weight: 500;">${escapeHtml(item.domain)}</td>
-            <td class="font-mono" style="color: var(--text-muted);">${escapeHtml(item.query_type || "A")}</td>
+            <td class="font-mono" style="font-weight:500;">${escapeHtml(item.domain)}</td>
+            <td class="font-mono" style="color:var(--text-muted);">${escapeHtml(item.query_type || "A")}</td>
             <td><span class="badge ${badgeClass}">${statusLabel}</span></td>
             <td>${quickActionBtn}</td>
-          </tr>
-        `;
+          </tr>`;
       }).join("");
     } catch (err) {
       console.error(err);
     }
   }
 
-  // Load Blocked Domains
+  // ==================== CLIENTS & WIREGUARD ====================
+  async function loadClients() {
+    try {
+      const search = clientSearchInput.value.trim();
+      let url = "/api/clients";
+      if (search) url += `?search=${encodeURIComponent(search)}`;
+
+      const res = await fetch(url);
+      if (handleAuthError(res) || !res.ok) return;
+      const data = await res.json();
+      const clients = data.clients || [];
+      badgeClientCount.textContent = clients.length;
+
+      if (clients.length === 0) {
+        clientsTableBody.innerHTML = `
+          <tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:2rem;">
+            Nenhum cliente cadastrado. Clique em "Novo Cliente" para começar a vender planos.
+          </td></tr>`;
+        return;
+      }
+
+      clientsTableBody.innerHTML = clients.map(c => {
+        let statusBadge = `<span class="badge badge-active">ATIVO</span>`;
+        if (c.status === "SUSPENDED") statusBadge = `<span class="badge badge-suspended">SUSPENSO</span>`;
+        if (c.status === "EXPIRED") statusBadge = `<span class="badge badge-expired">EXPIRADO</span>`;
+
+        const toggleAction = c.status === "ACTIVE"
+          ? `<button class="btn btn-secondary btn-sm" onclick="window.setClientStatus(${c.id}, 'SUSPENDED')">Suspender</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="window.setClientStatus(${c.id}, 'ACTIVE')">Ativar</button>`;
+
+        return `
+          <tr>
+            <td>
+              <div style="font-weight:600;">${escapeHtml(c.name)}</div>
+              <div style="font-size:0.76rem; color:var(--text-secondary);" class="font-mono">${escapeHtml(c.username)} &bull; ${escapeHtml(c.email)}</div>
+            </td>
+            <td><span class="badge badge-category">${escapeHtml(c.plan_name || "Sem plano")}</span></td>
+            <td class="font-mono">${c.device_count || 0} / ${c.max_devices || 2}</td>
+            <td class="font-mono" style="font-size:0.8rem;">${escapeHtml((c.expires_at || "").slice(0, 10))}</td>
+            <td>${statusBadge}</td>
+            <td>
+              <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" onclick="window.openClientDevices(${c.id}, '${escapeHtml(c.name)}')">📱 VPN / QR</button>
+                <button class="btn btn-secondary btn-sm" onclick="window.renewClient(${c.id})">+30d</button>
+                ${toggleAction}
+                <button class="btn btn-danger btn-sm" onclick="window.deleteClient(${c.id})" title="Excluir cliente">🗑️</button>
+              </div>
+            </td>
+          </tr>`;
+      }).join("");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function populatePlanSelect() {
+    const res = await fetch("/api/plans");
+    if (!res.ok) return;
+    const data = await res.json();
+    const plans = (data.plans || []).filter(p => p.is_active === 1);
+    badgePlanCount.textContent = (data.plans || []).length;
+    clientPlanSelect.innerHTML = plans.map(p =>
+      `<option value="${p.id}">${escapeHtml(p.name)} — R$ ${Number(p.price).toFixed(2)} (${p.max_devices} disp.)</option>`
+    ).join("");
+  }
+
+  btnOpenAddClientModal.addEventListener("click", async () => {
+    addClientForm.reset();
+    await populatePlanSelect();
+    addClientModal.classList.add("active");
+  });
+  closeAddClientModal.addEventListener("click", () => addClientModal.classList.remove("active"));
+  cancelAddClientBtn.addEventListener("click", () => addClientModal.classList.remove("active"));
+
+  addClientForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(addClientForm);
+    if (!fd.get("auto_create_device")) fd.set("auto_create_device", "0");
+    const res = await fetch("/api/clients", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.detail || "Erro ao criar cliente.", "error");
+      return;
+    }
+    showToast("Cliente criado e túnel WireGuard provisionado!");
+    addClientModal.classList.remove("active");
+    loadClients();
+    loadStats();
+  });
+
+  window.setClientStatus = async function(clientId, newStatus) {
+    const fd = new FormData();
+    fd.append("status", newStatus);
+    const res = await fetch(`/api/clients/${clientId}/status`, { method: "POST", body: fd });
+    if (res.ok) {
+      showToast(`Cliente atualizado para ${newStatus}. WireGuard sincronizado.`);
+      loadClients();
+      loadStats();
+    }
+  };
+
+  window.renewClient = async function(clientId) {
+    const res = await fetch(`/api/clients/${clientId}/renew`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Assinatura renovada até ${data.expires_at.slice(0, 10)}!`);
+      loadClients();
+      loadStats();
+    }
+  };
+
+  window.deleteClient = async function(clientId) {
+    if (!confirm("Excluir este cliente e todos os seus dispositivos VPN?")) return;
+    const res = await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
+    if (res.ok) {
+      showToast("Cliente removido.");
+      loadClients();
+      loadStats();
+    }
+  };
+
+  window.openClientDevices = async function(clientId, clientName) {
+    document.getElementById("devicesModalClientId").value = clientId;
+    document.getElementById("clientDevicesTitle").textContent = `Dispositivos VPN — ${clientName}`;
+    await refreshClientDevicesTable(clientId);
+    clientDevicesModal.classList.add("active");
+  };
+
+  async function refreshClientDevicesTable(clientId) {
+    const res = await fetch(`/api/clients/${clientId}/devices`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const devices = data.devices || [];
+
+    if (devices.length === 0) {
+      clientDevicesTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:1.5rem;">Nenhum dispositivo gerado.</td></tr>`;
+      return;
+    }
+
+    clientDevicesTableBody.innerHTML = devices.map(d => `
+      <tr>
+        <td style="font-weight:600;">${escapeHtml(d.name)}</td>
+        <td class="font-mono">${escapeHtml(d.vpn_ip)}</td>
+        <td>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-primary btn-sm" onclick="window.viewDeviceQr(${d.id})">📱 QR Code</button>
+            <a href="/api/devices/${d.id}/config" class="btn btn-secondary btn-sm">⬇️ .conf</a>
+          </div>
+        </td>
+        <td>
+          <button class="btn btn-danger btn-sm" onclick="window.deleteDevice(${d.id}, ${clientId})">🗑️</button>
+        </td>
+      </tr>`).join("");
+  }
+
+  adminAddDeviceForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const clientId = document.getElementById("devicesModalClientId").value;
+    const fd = new FormData(adminAddDeviceForm);
+    const res = await fetch(`/api/clients/${clientId}/devices`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.detail || "Erro ao gerar dispositivo.", "error");
+      return;
+    }
+    adminAddDeviceForm.reset();
+    showToast(`Dispositivo criado com IP ${data.vpn_ip}!`);
+    await refreshClientDevicesTable(clientId);
+    loadClients();
+    loadStats();
+  });
+
+  window.viewDeviceQr = async function(deviceId) {
+    const res = await fetch(`/api/devices/${deviceId}/qr`);
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById("qrViewerTitle").textContent = `${data.device.name} (${data.device.vpn_ip})`;
+    document.getElementById("qrViewerSvg").innerHTML = data.qr_svg;
+    document.getElementById("qrViewerText").value = data.config_text;
+    document.getElementById("qrViewerDownload").href = `/api/devices/${deviceId}/config`;
+    document.getElementById("qrViewerModal").classList.add("active");
+  };
+
+  window.deleteDevice = async function(deviceId, clientId) {
+    if (!confirm("Revogar acesso deste dispositivo?")) return;
+    const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
+    if (res.ok) {
+      showToast("Dispositivo revogado.");
+      await refreshClientDevicesTable(clientId);
+      loadClients();
+      loadStats();
+    }
+  };
+
+  // ==================== PLANS ====================
+  async function loadPlans() {
+    const res = await fetch("/api/plans");
+    if (handleAuthError(res) || !res.ok) return;
+    const data = await res.json();
+    const plans = data.plans || [];
+    badgePlanCount.textContent = plans.length;
+
+    plansGrid.innerHTML = plans.map(p => `
+      <div class="plan-card">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+            <h3 style="font-size:1.1rem; font-weight:600;">${escapeHtml(p.name)}</h3>
+            <span class="badge ${p.is_active ? 'badge-active' : 'badge-suspended'}">${p.is_active ? 'ATIVO' : 'INATIVO'}</span>
+          </div>
+          <div class="plan-price">R$ ${Number(p.price).toFixed(2).replace(".", ",")} <span>/ ${p.duration_days} dias</span></div>
+          <p style="font-size:0.84rem; color:var(--text-secondary); margin-top:0.6rem;">${escapeHtml(p.description || "Sem descrição")}</p>
+        </div>
+        <div style="border-top:1px solid var(--border-subtle); padding-top:0.85rem; display:flex; justify-content:space-between; align-items:center;">
+          <span class="font-mono" style="font-size:0.8rem; color:var(--text-secondary);">Até ${p.max_devices} dispositivos</span>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-secondary btn-sm" onclick="window.togglePlan(${p.id})">${p.is_active ? 'Desativar' : 'Ativar'}</button>
+            <button class="btn btn-danger btn-sm" onclick="window.deletePlan(${p.id})">🗑️</button>
+          </div>
+        </div>
+      </div>`).join("");
+  }
+
+  btnOpenAddPlanModal.addEventListener("click", () => {
+    addPlanForm.reset();
+    addPlanModal.classList.add("active");
+  });
+  closeAddPlanModal.addEventListener("click", () => addPlanModal.classList.remove("active"));
+  cancelAddPlanBtn.addEventListener("click", () => addPlanModal.classList.remove("active"));
+
+  addPlanForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(addPlanForm);
+    const res = await fetch("/api/plans", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.detail || "Erro ao criar plano.", "error");
+      return;
+    }
+    showToast("Plano criado com sucesso!");
+    addPlanModal.classList.remove("active");
+    loadPlans();
+  });
+
+  window.togglePlan = async function(planId) {
+    const res = await fetch(`/api/plans/${planId}/toggle`, { method: "POST" });
+    if (res.ok) {
+      showToast("Status do plano atualizado.");
+      loadPlans();
+    }
+  };
+
+  window.deletePlan = async function(planId) {
+    if (!confirm("Remover este plano?")) return;
+    const res = await fetch(`/api/plans/${planId}`, { method: "DELETE" });
+    if (res.ok) {
+      showToast("Plano excluído.");
+      loadPlans();
+    }
+  };
+
+  // ==================== CATEGORIES & BLOCKED DOMAINS ====================
+  async function loadCategories() {
+    const res = await fetch("/api/categories");
+    if (!res.ok) return;
+    const data = await res.json();
+    const cats = data.categories || [];
+    categoriesGrid.innerHTML = cats.map(c => {
+      const isOn = c.active_count > 0;
+      return `
+        <div class="category-pack">
+          <div>
+            <div style="font-weight:600; font-size:0.9rem;">${escapeHtml(c.category)}</div>
+            <div style="font-size:0.76rem; color:var(--text-secondary);">${c.active_count} / ${c.total} ativos</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" ${isOn ? "checked" : ""} onchange="window.toggleCategory('${escapeHtml(c.category)}', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>`;
+    }).join("");
+  }
+
+  window.toggleCategory = async function(category, checked) {
+    const fd = new FormData();
+    fd.append("category", category);
+    fd.append("enable", checked ? "1" : "0");
+    const res = await fetch("/api/categories/toggle", { method: "POST", body: fd });
+    if (res.ok) {
+      showToast(`Categoria "${category}" ${checked ? "ativada" : "pausada"}!`);
+      loadCategories();
+      loadBlockedDomains();
+      loadStats();
+    }
+  };
+
   async function loadBlockedDomains() {
     try {
       const search = domainSearchInput.value.trim();
@@ -158,113 +490,82 @@ document.addEventListener("DOMContentLoaded", () => {
       if (search) url += `?search=${encodeURIComponent(search)}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error("Erro ao carregar domínios");
+      if (handleAuthError(res) || !res.ok) return;
       const data = await res.json();
       const domains = data.domains || [];
       badgeDomainCount.textContent = domains.length;
 
       if (domains.length === 0) {
-        domainsTableBody.innerHTML = `
-          <tr>
-            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">
-              Nenhum domínio bloqueado cadastrado. Clique em "Novo Bloqueio" para adicionar.
-            </td>
-          </tr>
-        `;
+        domainsTableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:2rem;">Nenhum domínio cadastrado.</td></tr>`;
         return;
       }
 
-      domainsTableBody.innerHTML = domains.map(d => {
-        const isChecked = d.enabled === 1 ? "checked" : "";
-        return `
-          <tr>
-            <td class="font-mono" style="font-weight: 600;">${escapeHtml(d.domain)}</td>
-            <td><span class="badge badge-category">${escapeHtml(d.category || "Geral")}</span></td>
-            <td style="color: var(--text-secondary);">${escapeHtml(d.reason || "-")}</td>
-            <td class="font-mono">${(d.hits || 0).toLocaleString()}</td>
-            <td>
-              <label class="toggle-switch">
-                <input type="checkbox" ${isChecked} onchange="window.toggleDomain(${d.id})">
-                <span class="toggle-slider"></span>
-              </label>
-            </td>
-            <td>
-              <button class="btn btn-secondary btn-sm" onclick="window.deleteDomain(${d.id})" title="Remover da lista">
-                🗑️
-              </button>
-            </td>
-          </tr>
-        `;
-      }).join("");
+      domainsTableBody.innerHTML = domains.map(d => `
+        <tr>
+          <td class="font-mono" style="font-weight:600;">${escapeHtml(d.domain)}</td>
+          <td><span class="badge badge-category">${escapeHtml(d.category || "Geral")}</span></td>
+          <td style="color:var(--text-secondary);">${escapeHtml(d.reason || "-")}</td>
+          <td class="font-mono">${(d.hits || 0).toLocaleString()}</td>
+          <td>
+            <label class="toggle-switch">
+              <input type="checkbox" ${d.enabled === 1 ? "checked" : ""} onchange="window.toggleDomain(${d.id})">
+              <span class="toggle-slider"></span>
+            </label>
+          </td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="window.deleteDomain(${d.id})" title="Remover">🗑️</button>
+          </td>
+        </tr>`).join("");
     } catch (err) {
       console.error(err);
     }
   }
 
-  // Load Unblock Requests
   async function loadUnblockRequests() {
     try {
       const res = await fetch("/api/unblock-requests");
-      if (!res.ok) return;
+      if (handleAuthError(res) || !res.ok) return;
       const data = await res.json();
       const reqs = data.requests || [];
       badgeRequestCount.textContent = reqs.length;
 
       if (reqs.length === 0) {
-        requestsTableBody.innerHTML = `
-          <tr>
-            <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">
-              Nenhuma solicitação de desbloqueio pendente.
-            </td>
-          </tr>
-        `;
+        requestsTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:2rem;">Nenhuma solicitação pendente.</td></tr>`;
         return;
       }
 
       requestsTableBody.innerHTML = reqs.map(r => `
         <tr>
-          <td class="font-mono" style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(r.created_at)}</td>
-          <td class="font-mono" style="font-weight: 600; color: var(--accent-primary);">${escapeHtml(r.domain)}</td>
+          <td class="font-mono" style="font-size:0.78rem; color:var(--text-secondary);">${escapeHtml(r.created_at)}</td>
+          <td class="font-mono" style="font-weight:600; color:var(--accent-primary);">${escapeHtml(r.domain)}</td>
           <td class="font-mono">${escapeHtml(r.client_ip)}</td>
           <td>${escapeHtml(r.reason)}</td>
           <td>
-            <button class="btn btn-primary btn-sm" onclick="window.quickUnblock('${escapeHtml(r.domain)}')">
-              ✓ Liberar Acesso
-            </button>
+            <button class="btn btn-primary btn-sm" onclick="window.quickUnblock('${escapeHtml(r.domain)}')">✓ Liberar Acesso</button>
           </td>
-        </tr>
-      `).join("");
+        </tr>`).join("");
     } catch (err) {
       console.error(err);
     }
   }
 
-  // Global helper actions
   window.toggleDomain = async function(id) {
-    try {
-      const res = await fetch(`/api/blocked-domains/${id}/toggle`, { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        showToast("Regra atualizada e DNS sincronizado!");
-        loadStats();
-      }
-    } catch (e) {
-      showToast("Falha ao alternar status do domínio.", "error");
+    const res = await fetch(`/api/blocked-domains/${id}/toggle`, { method: "POST" });
+    if (res.ok) {
+      showToast("Regra atualizada e DNS sincronizado!");
+      loadCategories();
+      loadStats();
     }
   };
 
   window.deleteDomain = async function(id) {
-    if (!confirm("Tem certeza que deseja remover este domínio da lista de bloqueio?")) return;
-    try {
-      const res = await fetch(`/api/blocked-domains/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (data.success) {
-        showToast("Domínio removido do bloqueio.");
-        loadBlockedDomains();
-        loadStats();
-      }
-    } catch (e) {
-      showToast("Erro ao excluir domínio.", "error");
+    if (!confirm("Remover este domínio da lista de bloqueio?")) return;
+    const res = await fetch(`/api/blocked-domains/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      showToast("Domínio removido do bloqueio.");
+      loadBlockedDomains();
+      loadCategories();
+      loadStats();
     }
   };
 
@@ -276,7 +577,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   window.quickUnblock = async function(domain) {
-    // Find domain id from list
     const res = await fetch(`/api/blocked-domains?search=${encodeURIComponent(domain)}`);
     const data = await res.json();
     const match = (data.domains || []).find(d => d.domain.toLowerCase() === domain.toLowerCase());
@@ -288,7 +588,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // Add Domain Modal Events
   btnOpenAddModal.addEventListener("click", () => {
     addDomainForm.reset();
     addDomainModal.classList.add("active");
@@ -298,24 +597,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   addDomainForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const formData = new FormData(addDomainForm);
-    try {
-      const res = await fetch("/api/blocked-domains", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.detail || "Erro ao adicionar domínio.", "error");
-        return;
-      }
-      showToast(`Domínio ${data.domain} adicionado e DNS atualizado!`);
-      addDomainModal.classList.remove("active");
-      loadBlockedDomains();
-      loadStats();
-    } catch (err) {
-      showToast("Erro de comunicação com o servidor.", "error");
+    const res = await fetch("/api/blocked-domains", { method: "POST", body: new FormData(addDomainForm) });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.detail || "Erro ao adicionar domínio.", "error");
+      return;
     }
+    showToast(`Domínio ${data.domain} bloqueado e DNS atualizado!`);
+    addDomainModal.classList.remove("active");
+    loadBlockedDomains();
+    loadCategories();
+    loadStats();
   });
 
-  // Bulk Import Modal Events
   btnOpenBulkModal.addEventListener("click", () => {
     bulkForm.reset();
     bulkModal.classList.add("active");
@@ -325,68 +619,60 @@ document.addEventListener("DOMContentLoaded", () => {
 
   bulkForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const formData = new FormData(bulkForm);
-    try {
-      const res = await fetch("/api/blocked-domains/bulk", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`${data.added_count} de ${data.total_submitted} domínios importados com sucesso!`);
-        bulkModal.classList.remove("active");
-        loadBlockedDomains();
-        loadStats();
-      }
-    } catch (err) {
-      showToast("Erro na importação em massa.", "error");
+    const res = await fetch("/api/blocked-domains/bulk", { method: "POST", body: new FormData(bulkForm) });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`${data.added_count} de ${data.total_submitted} domínios importados!`);
+      bulkModal.classList.remove("active");
+      loadBlockedDomains();
+      loadCategories();
+      loadStats();
     }
   });
 
-  // Settings Form Submit
+  // Settings & Password Forms
   settingsForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const formData = new FormData(settingsForm);
-    try {
-      const res = await fetch("/api/settings", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.success) {
-        showToast("Configurações salvas e regras DNS recalculadas!");
-        document.getElementById("headerServerIp").textContent = formData.get("server_ip");
-      }
-    } catch (err) {
-      showToast("Erro ao salvar configurações.", "error");
+    const fd = new FormData(settingsForm);
+    const res = await fetch("/api/settings", { method: "POST", body: fd });
+    if (res.ok) {
+      showToast("Configurações salvas e regras DNS recalculadas!");
+      document.getElementById("headerServerIp").textContent = fd.get("server_ip");
     }
   });
 
-  // Force Sync DNS Button
+  changePasswordForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const res = await fetch("/api/auth/change-password", { method: "POST", body: new FormData(changePasswordForm) });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.detail || "Erro ao alterar senha.", "error");
+      return;
+    }
+    changePasswordForm.reset();
+    showToast("Senha administrativa alterada com sucesso!");
+  });
+
   btnSyncDns.addEventListener("click", async () => {
     btnSyncDns.disabled = true;
     btnSyncDns.textContent = "Recarregando...";
     try {
       const res = await fetch("/api/sync-dns", { method: "POST" });
       const data = await res.json();
-      if (data.success) {
-        showToast(`DNS atualizado: ${data.active_rules} regras ativas aplicadas.`);
-      } else {
-        showToast("DNS atualizado localmente.", "success");
-      }
-    } catch (e) {
-      showToast("Falha ao recarregar serviço DNS.", "error");
+      if (data.success) showToast(`DNS atualizado: ${data.active_rules} regras ativas.`);
     } finally {
       btnSyncDns.disabled = false;
       btnSyncDns.innerHTML = "<span>🔄</span> Recarregar DNS";
     }
   });
 
-  // Filter and Search Events
-  btnRefreshLogs.addEventListener("click", () => {
-    loadQueryLogs();
-    loadStats();
-  });
+  btnRefreshLogs.addEventListener("click", () => { loadQueryLogs(); loadStats(); });
   logSearchInput.addEventListener("input", debounce(loadQueryLogs, 300));
   logStatusFilter.addEventListener("change", loadQueryLogs);
+  clientSearchInput.addEventListener("input", debounce(loadClients, 300));
   domainSearchInput.addEventListener("input", debounce(loadBlockedDomains, 300));
   btnRefreshRequests.addEventListener("click", loadUnblockRequests);
 
-  // Debounce helper
   function debounce(func, wait) {
     let timeout;
     return function(...args) {
@@ -395,7 +681,6 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  // Auto Refresh Interval
   function setupAutoRefresh() {
     if (autoRefreshCheckbox.checked) {
       autoRefreshTimer = setInterval(() => {
@@ -404,25 +689,21 @@ document.addEventListener("DOMContentLoaded", () => {
           loadStats();
         }
       }, 5000);
-    } else {
-      if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    } else if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
     }
   }
-
   autoRefreshCheckbox.addEventListener("change", setupAutoRefresh);
 
-  // Live São Paulo Clock in header
   function updateLiveClock() {
     const clockEl = document.getElementById("liveClock");
     if (!clockEl) return;
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat("pt-BR", {
+    clockEl.textContent = new Intl.DateTimeFormat("pt-BR", {
       timeZone: "America/Sao_Paulo",
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit"
-    });
-    clockEl.textContent = formatter.format(now);
+    }).format(new Date());
   }
   updateLiveClock();
   setInterval(updateLiveClock, 1000);
@@ -430,5 +711,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initial Load
   loadStats();
   loadQueryLogs();
+  populatePlanSelect();
   setupAutoRefresh();
 });

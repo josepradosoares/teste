@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NetShield DNS | Painel de Controle de Acesso</title>
+  <title>NetShield DNS | Painel Comercial & Controle de Acesso</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
         <div class="brand-icon">🛡️</div>
         <div>
           <span class="brand-name">NetShield DNS</span>
-          <span class="brand-tag">Painel de Acesso</span>
+          <span class="brand-tag">Gestão Comercial</span>
         </div>
       </div>
 
@@ -33,8 +33,9 @@
           <span>🔄</span> Recarregar DNS
         </button>
         <a href="/blocked?domain=exemplo-teste.com" target="_blank" class="btn btn-secondary btn-sm" title="Visualizar página de bloqueio">
-          <span>👁️</span> Ver Página de Bloqueio
+          <span>👁️</span> Ver Bloqueio
         </a>
+        <a href="/logout" class="btn btn-danger btn-sm" title="Encerrar sessão">Sair</a>
       </div>
     </div>
   </header>
@@ -44,36 +45,44 @@
 
     <!-- KPI Metrics -->
     <section class="metrics-grid" aria-label="Métricas do Servidor">
+      <div class="metric-card allowed-metric">
+        <span class="metric-title">Clientes Ativos</span>
+        <span class="metric-value" id="statActiveSubscribers">0</span>
+        <span class="metric-sub">Receita Estimada: <strong id="statMrr" class="font-mono">R$ 0,00</strong>/mês</span>
+      </div>
+
       <div class="metric-card">
-        <span class="metric-title">Total de Consultas</span>
+        <span class="metric-title">Dispositivos VPN</span>
+        <span class="metric-value" id="statTotalDevices">0</span>
+        <span class="metric-sub">Túneis WireGuard provisionados</span>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-title">Consultas DNS</span>
         <span class="metric-value" id="statTotalQueries">0</span>
-        <span class="metric-sub">Requisições DNS processadas</span>
+        <span class="metric-sub">Taxa de bloqueio: <strong id="statBlockRate" class="font-mono">0%</strong></span>
       </div>
 
       <div class="metric-card blocked-metric">
         <span class="metric-title">Acessos Bloqueados</span>
         <span class="metric-value" id="statTotalBlocked">0</span>
-        <span class="metric-sub">Sites restritos interceptados</span>
-      </div>
-
-      <div class="metric-card">
-        <span class="metric-title">Taxa de Bloqueio</span>
-        <span class="metric-value" id="statBlockRate">0%</span>
-        <span class="metric-sub">Percentual de tráfego filtrado</span>
-      </div>
-
-      <div class="metric-card allowed-metric">
-        <span class="metric-title">Domínios na Blocklist</span>
-        <span class="metric-value" id="statActiveRules">0</span>
-        <span class="metric-sub">Regras ativas no dnsmasq</span>
+        <span class="metric-sub"><span id="statActiveRules" class="font-mono">0</span> domínios ativos na blocklist</span>
       </div>
     </section>
 
     <!-- Navigation Tabs -->
-    <nav class="tabs-navigation" aria-label="Abas do Painel">
+    <nav class="tabs-navigation" aria-label="Abas do Painel" style="overflow-x: auto;">
       <button class="tab-btn active" data-tab="tab-logs">
-        <span>📋</span> Monitor de Consultas
-        <span class="tab-badge" id="badgeLogCount">50</span>
+        <span>📋</span> Monitor
+        <span class="tab-badge" id="badgeLogCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-clients">
+        <span>👥</span> Clientes & VPN
+        <span class="tab-badge" id="badgeClientCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-plans">
+        <span>💳</span> Planos
+        <span class="tab-badge" id="badgePlanCount">0</span>
       </button>
       <button class="tab-btn" data-tab="tab-domains">
         <span>🚫</span> Regras de Bloqueio
@@ -84,7 +93,7 @@
         <span class="tab-badge" id="badgeRequestCount">0</span>
       </button>
       <button class="tab-btn" data-tab="tab-settings">
-        <span>⚙️</span> Configurações & Instruções
+        <span>⚙️</span> Configurações
       </button>
     </nav>
 
@@ -94,7 +103,7 @@
         <div class="surface-header">
           <div>
             <h2 class="surface-title">Consultas em Tempo Real</h2>
-            <p class="surface-desc">Lista detalhada de requisições DNS originadas pelos dispositivos da rede.</p>
+            <p class="surface-desc">Requisições DNS recebidas pelo servidor e pela VPN WireGuard.</p>
           </div>
           <div class="controls-bar">
             <input type="text" id="logSearchInput" class="search-input" placeholder="Buscar por domínio ou IP...">
@@ -134,13 +143,80 @@
       </div>
     </section>
 
-    <!-- TAB 2: Blocked Domains Management -->
+    <!-- TAB 2: Clients & WireGuard Provisioning -->
+    <section id="tab-clients" class="tab-content">
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Gestão de Clientes & Assinaturas</h2>
+            <p class="surface-desc">Cadastre clientes, gere acessos WireGuard (QR Code / .conf) e controle vencimentos.</p>
+          </div>
+          <div class="controls-bar">
+            <input type="text" id="clientSearchInput" class="search-input" placeholder="Buscar por nome, e-mail ou usuário...">
+            <button type="button" class="btn btn-primary" id="btnOpenAddClientModal">
+              <span>➕</span> Novo Cliente
+            </button>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Cliente / Usuário</th>
+                <th>Plano</th>
+                <th>Dispositivos</th>
+                <th>Vencimento</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="clientsTableBody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Carregando clientes...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Commercial Plans -->
+    <section id="tab-plans" class="tab-content">
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Planos de Assinatura</h2>
+            <p class="surface-desc">Configure os pacotes comerciais, preços e limites de dispositivos simultâneos.</p>
+          </div>
+          <button type="button" class="btn btn-primary" id="btnOpenAddPlanModal">
+            <span>➕</span> Criar Novo Plano
+          </button>
+        </div>
+
+        <div id="plansGrid" class="plans-grid">
+          <p style="color: var(--text-muted);">Carregando planos...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: Blocked Domains Management -->
     <section id="tab-domains" class="tab-content">
       <div class="surface-card">
         <div class="surface-header">
           <div>
+            <h2 class="surface-title">Pacotes por Categoria (1 Clique)</h2>
+            <p class="surface-desc">Ative ou desative categorias inteiras de bloqueio instantaneamente.</p>
+          </div>
+        </div>
+        <div id="categoriesGrid" class="categories-grid"></div>
+      </div>
+
+      <div class="surface-card">
+        <div class="surface-header">
+          <div>
             <h2 class="surface-title">Domínios Bloqueados (Sinkhole)</h2>
-            <p class="surface-desc">Domínios que serão direcionados para a página de bloqueio personalizada.</p>
+            <p class="surface-desc">Domínios direcionados para a página de bloqueio personalizada.</p>
           </div>
           <div class="controls-bar">
             <input type="text" id="domainSearchInput" class="search-input" placeholder="Pesquisar domínio cadastrado...">
@@ -175,13 +251,13 @@
       </div>
     </section>
 
-    <!-- TAB 3: Unblock Requests -->
+    <!-- TAB 5: Unblock Requests -->
     <section id="tab-requests" class="tab-content">
       <div class="surface-card">
         <div class="surface-header">
           <div>
             <h2 class="surface-title">Solicitações de Desbloqueio</h2>
-            <p class="surface-desc">Justificativas enviadas por usuários diretamente a partir da tela de aviso.</p>
+            <p class="surface-desc">Justificativas enviadas por usuários a partir da tela de aviso.</p>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshRequests">
             <span>🔄</span> Atualizar Pedidos
@@ -209,7 +285,7 @@
       </div>
     </section>
 
-    <!-- TAB 4: Settings & Instructions -->
+    <!-- TAB 6: Settings & Security -->
     <section id="tab-settings" class="tab-content">
       <div class="surface-card">
         <div class="surface-header">
@@ -221,20 +297,18 @@
 
         <form id="settingsForm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
           <div class="form-group">
-            <label class="form-label" for="settingServerIp">IP do Servidor (Sinkhole IP)</label>
+            <label class="form-label" for="settingServerIp">IP Público do Servidor (Sinkhole & VPN)</label>
             <input type="text" id="settingServerIp" name="server_ip" class="form-input font-mono" value="{{ settings.get('server_ip', '192.168.1.100') }}" required>
-            <small style="color: var(--text-muted); font-size: 0.76rem;">Endereço IP para o qual os domínios bloqueados serão apontados.</small>
           </div>
 
           <div class="form-group">
             <label class="form-label" for="settingUpstream">Servidores DNS Upstream</label>
             <input type="text" id="settingUpstream" name="upstream_dns" class="form-input font-mono" value="{{ settings.get('upstream_dns', '1.1.1.1, 8.8.8.8') }}" required>
-            <small style="color: var(--text-muted); font-size: 0.76rem;">Servidores externos que resolvem sites permitidos (ex: Cloudflare, Google).</small>
           </div>
 
           <div class="form-group" style="grid-column: 1 / -1;">
             <label class="form-label" for="settingBlockMsg">Mensagem Padrão de Bloqueio</label>
-            <input type="text" id="settingBlockMsg" name="block_message_default" class="form-input" value="{{ settings.get('block_message_default', 'Acesso não permitido pelas regras de segurança da rede.') }}" required>
+            <input type="text" id="settingBlockMsg" name="block_message_default" class="form-input" value="{{ settings.get('block_message_default', 'Acesso não permitido.') }}" required>
           </div>
 
           <div class="form-group">
@@ -242,7 +316,7 @@
             <input type="email" id="settingContact" name="admin_contact" class="form-input" value="{{ settings.get('admin_contact', 'suporte@empresa.local') }}" required>
           </div>
 
-          <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+          <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
             <button type="submit" class="btn btn-primary">
               <span>💾</span> Salvar Configurações
             </button>
@@ -250,30 +324,166 @@
         </form>
       </div>
 
-      <!-- Quick Setup Guide -->
+      <!-- Change Admin Password -->
       <div class="surface-card">
-        <h3 style="font-size: 1.05rem; font-weight: 600; margin-bottom: 0.75rem;">Como Configurar os Dispositivos para Usar Este DNS</h3>
-        <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 1rem;">
-          Para que o bloqueio funcione nos computadores e celulares, configure o IP deste servidor como o <strong>DNS Primário</strong>:
-        </p>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; font-size: 0.84rem;">
-          <div style="background-color: var(--bg-surface-elevated); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-            <strong style="display: block; margin-bottom: 0.35rem; color: var(--text-primary);">🌐 No Roteador (Recomendado):</strong>
-            <span style="color: var(--text-secondary);">Acesse o roteador da sua rede (ex: 192.168.1.1) &rarr; Configurações DHCP &rarr; Defina o <strong>DNS Primário</strong> com o IP deste servidor. Todos os dispositivos da rede serão protegidos automaticamente!</span>
-          </div>
-          <div style="background-color: var(--bg-surface-elevated); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-            <strong style="display: block; margin-bottom: 0.35rem; color: var(--text-primary);">💻 No Windows:</strong>
-            <span style="color: var(--text-secondary);">Configurações &rarr; Rede e Internet &rarr; Propriedades do Wi-Fi/Ethernet &rarr; Atribuição de DNS &rarr; Manual (IPv4) &rarr; DNS Preferencial = IP deste servidor.</span>
-          </div>
-          <div style="background-color: var(--bg-surface-elevated); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-            <strong style="display: block; margin-bottom: 0.35rem; color: var(--text-primary);">🐧 No Linux:</strong>
-            <span style="color: var(--text-secondary);">Edite o arquivo <code>/etc/resolv.conf</code> adicionando a linha <code>nameserver IP_DO_SERVIDOR</code> ou ajuste via NetworkManager.</span>
+        <div class="surface-header">
+          <div>
+            <h2 class="surface-title">Segurança da Conta ({{ user.username }})</h2>
+            <p class="surface-desc">Altere sua senha administrativa padrão para proteger o servidor.</p>
           </div>
         </div>
+
+        <form id="changePasswordForm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label" for="currentPasswordInput">Senha Atual</label>
+            <input type="password" id="currentPasswordInput" name="current_password" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="newPasswordInput">Nova Senha (mín. 6 caracteres)</label>
+            <input type="password" id="newPasswordInput" name="new_password" class="form-input" minlength="6" required>
+          </div>
+          <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-secondary">
+              <span>🔐</span> Alterar Senha
+            </button>
+          </div>
+        </form>
       </div>
     </section>
 
   </main>
+
+  <!-- Modal: Add New Client -->
+  <div class="modal-overlay" id="addClientModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Cadastrar Novo Cliente</h3>
+        <button type="button" class="modal-close" id="closeAddClientModal">&times;</button>
+      </div>
+      <form id="addClientForm" style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <div class="form-group">
+          <label class="form-label" for="clientNameInput">Nome Completo</label>
+          <input type="text" id="clientNameInput" name="name" class="form-input" placeholder="Ex: João Silva" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label class="form-label" for="clientEmailInput">E-mail</label>
+            <input type="email" id="clientEmailInput" name="email" class="form-input" placeholder="joao@email.com" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="clientPhoneInput">WhatsApp / Telefone</label>
+            <input type="text" id="clientPhoneInput" name="phone" class="form-input" placeholder="(11) 99999-9999">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="clientPlanSelect">Plano Contratado</label>
+          <select id="clientPlanSelect" name="plan_id" class="form-select" required></select>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label class="form-label" for="clientUsernameInput">Login (Portal do Cliente)</label>
+            <input type="text" id="clientUsernameInput" name="username" class="form-input font-mono" placeholder="joaosilva" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="clientPasswordInput">Senha de Acesso</label>
+            <input type="text" id="clientPasswordInput" name="password" class="form-input font-mono" value="123456" required>
+          </div>
+        </div>
+        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.84rem; color: var(--text-secondary);">
+          <input type="checkbox" name="auto_create_device" value="1" checked> Gerar 1º dispositivo WireGuard automaticamente
+        </label>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelAddClientBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Criar Cliente & Acesso</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Client Devices & QR Code Manager -->
+  <div class="modal-overlay" id="clientDevicesModal">
+    <div class="modal-card" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="clientDevicesTitle">Dispositivos do Cliente</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('clientDevicesModal').classList.remove('active')">&times;</button>
+      </div>
+      <form id="adminAddDeviceForm" style="display: flex; gap: 0.6rem;">
+        <input type="hidden" id="devicesModalClientId">
+        <input type="text" id="adminDeviceNameInput" name="name" class="form-input" style="flex: 1;" placeholder="Nome do dispositivo (ex: Celular Samsung)" required>
+        <button type="submit" class="btn btn-primary btn-sm">➕ Gerar VPN</button>
+      </form>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Dispositivo</th>
+              <th>IP VPN</th>
+              <th>Configuração</th>
+              <th>Remover</th>
+            </tr>
+          </thead>
+          <tbody id="clientDevicesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: WireGuard QR Code Viewer -->
+  <div class="modal-overlay" id="qrViewerModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="qrViewerTitle">QR Code WireGuard</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('qrViewerModal').classList.remove('active')">&times;</button>
+      </div>
+      <div id="qrViewerSvg" class="qr-box"></div>
+      <p style="font-size: 0.82rem; color: var(--text-secondary); text-align: center;">
+        Escaneie no app <strong>WireGuard</strong> (Android/iOS) ou baixe o arquivo <code>.conf</code> para Windows.
+      </p>
+      <textarea id="qrViewerText" class="form-textarea font-mono" rows="6" readonly style="font-size: 0.76rem;"></textarea>
+      <div class="modal-footer">
+        <a id="qrViewerDownload" href="#" class="btn btn-primary">⬇️ Baixar .conf</a>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('qrViewerModal').classList.remove('active')">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add Plan -->
+  <div class="modal-overlay" id="addPlanModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Criar Novo Plano</h3>
+        <button type="button" class="modal-close" id="closeAddPlanModal">&times;</button>
+      </div>
+      <form id="addPlanForm" style="display: flex; flex-direction: column; gap: 0.9rem;">
+        <div class="form-group">
+          <label class="form-label" for="planNameInput">Nome do Plano</label>
+          <input type="text" id="planNameInput" name="name" class="form-input" placeholder="Ex: Plano Família" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group">
+            <label class="form-label" for="planPriceInput">Valor (R$)</label>
+            <input type="number" step="0.01" id="planPriceInput" name="price" class="form-input font-mono" value="29.90" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="planDaysInput">Dias</label>
+            <input type="number" id="planDaysInput" name="duration_days" class="form-input font-mono" value="30" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="planMaxDevicesInput">Dispositivos</label>
+            <input type="number" id="planMaxDevicesInput" name="max_devices" class="form-input font-mono" value="3" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="planDescInput">Descrição</label>
+          <textarea id="planDescInput" name="description" class="form-textarea" rows="2" placeholder="Benefícios do plano..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelAddPlanBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Plano</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Modal: Add New Blocked Domain -->
   <div class="modal-overlay" id="addDomainModal">
@@ -282,31 +492,28 @@
         <h3 class="modal-title">Cadastrar Novo Bloqueio</h3>
         <button type="button" class="modal-close" id="closeAddModal">&times;</button>
       </div>
-
       <form id="addDomainForm" style="display: flex; flex-direction: column; gap: 1rem;">
         <div class="form-group">
           <label class="form-label" for="newDomainInput">Domínio do Site</label>
           <input type="text" id="newDomainInput" name="domain" class="form-input font-mono" placeholder="ex: tiktok.com ou betano.com" required>
         </div>
-
         <div class="form-group">
           <label class="form-label" for="newCategorySelect">Categoria</label>
           <select id="newCategorySelect" name="category" class="form-select">
             <option value="Redes Sociais">Redes Sociais</option>
             <option value="Apostas">Apostas e Cassinos</option>
             <option value="Adulto">Conteúdo Adulto</option>
+            <option value="Anúncios & Trackers">Anúncios & Trackers</option>
             <option value="P2P / Torrent">P2P e Compartilhamento</option>
             <option value="Jogos">Jogos Online</option>
             <option value="Segurança / Malware">Segurança / Malware</option>
             <option value="Geral" selected>Geral / Outros</option>
           </select>
         </div>
-
         <div class="form-group">
           <label class="form-label" for="newReasonInput">Motivo do Bloqueio (Exibido na tela)</label>
-          <textarea id="newReasonInput" name="reason" rows="3" class="form-textarea" placeholder="Ex: Este site não é permitido durante o horário de trabalho conforme política interna..."></textarea>
+          <textarea id="newReasonInput" name="reason" rows="3" class="form-textarea" placeholder="Ex: Este site não é permitido conforme política de segurança..."></textarea>
         </div>
-
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelAddBtn">Cancelar</button>
           <button type="submit" class="btn btn-primary">Adicionar Regra</button>
@@ -322,32 +529,26 @@
         <h3 class="modal-title">Importação de Domínios em Massa</h3>
         <button type="button" class="modal-close" id="closeBulkModal">&times;</button>
       </div>
-
       <form id="bulkForm" style="display: flex; flex-direction: column; gap: 1rem;">
-        <p style="font-size: 0.85rem; color: var(--text-secondary);">
-          Cole uma lista de domínios, um por linha (sem http/https).
-        </p>
-
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">Cole uma lista de domínios, um por linha (sem http/https).</p>
         <div class="form-group">
           <label class="form-label" for="bulkDomainsText">Lista de Domínios</label>
-          <textarea id="bulkDomainsText" name="domains_text" rows="6" class="form-textarea font-mono" placeholder="exemplo1.com&#10;exemplo2.com&#10;exemplo3.com" required></textarea>
+          <textarea id="bulkDomainsText" name="domains_text" rows="6" class="form-textarea font-mono" placeholder="exemplo1.com&#10;exemplo2.com" required></textarea>
         </div>
-
         <div class="form-group">
-          <label class="form-label" for="bulkCategory">Categoria para estes itens</label>
+          <label class="form-label" for="bulkCategory">Categoria</label>
           <select id="bulkCategory" name="category" class="form-select">
             <option value="Redes Sociais">Redes Sociais</option>
             <option value="Apostas">Apostas</option>
             <option value="Adulto">Adulto</option>
+            <option value="Anúncios & Trackers">Anúncios & Trackers</option>
             <option value="Geral" selected>Geral</option>
           </select>
         </div>
-
         <div class="form-group">
           <label class="form-label" for="bulkReason">Motivo do Bloqueio</label>
           <input type="text" id="bulkReason" name="reason" class="form-input" value="Bloqueio administrativo via lista de regras">
         </div>
-
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelBulkBtn">Cancelar</button>
           <button type="submit" class="btn btn-primary">Importar Todos</button>
@@ -356,9 +557,7 @@
     </div>
   </div>
 
-  <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
-
   <script src="/static/js/app.js"></script>
 </body>
 </html>

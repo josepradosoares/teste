@@ -35,6 +35,7 @@ echo -e "\n${CYAN}[2/7] Atualizando arquivos da aplicação a partir do reposit�
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p /opt/netshield/web /opt/netshield/data /opt/netshield/ssl /etc/dnsmasq.d
 cp -r "${REPO_DIR}/web/"* /opt/netshield/web/
+/opt/netshield/venv/bin/pip install -q -r /opt/netshield/web/requirements.txt
 cp "${REPO_DIR}/config/nginx_blockpage.conf" /etc/nginx/sites-available/netshield.conf
 ln -sf /etc/nginx/sites-available/netshield.conf /etc/nginx/sites-enabled/netshield.conf
 rm -f /etc/nginx/sites-enabled/default

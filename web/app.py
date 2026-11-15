@@ -1,58 +1,24 @@
 import os
-import random
-from datetime import datetime, timedelta
-from typing import Optional, List
-from fastapi import FastAPI, Request, Form, Query, HTTPException, Depends
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+import json
+import hmac
+import hashlib
+import base64
+import time
+from datetime import datetime
+from typing import Optional, Dict, Any
+from fastapi import FastAPI, Request, Form, HTTPException, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import database as db
 import dns_manager
+import wg_manager
 
 # Initialize DB on startup
 db.init_db()
 
-# Seed mock logs if DB has fewer than 10 logs so dashboard is visually rich right away
-def seed_mock_logs_if_empty():
-    conn = db.get_db()
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM query_logs;")
-    count = c.fetchone()[0]
-    if count < 10:
-        sample_clients = ["192.168.1.15", "192.168.1.22", "192.168.1.37", "192.168.1.89", "192.168.1.104"]
-        sample_domains = [
-            ("google.com", "ALLOWED"),
-            ("github.com", "ALLOWED"),
-            ("tiktok.com", "BLOCKED"),
-            ("bet365.com", "BLOCKED"),
-            ("api.whatsapp.com", "ALLOWED"),
-            ("xvideos.com", "BLOCKED"),
-            ("cloudflare.com", "ALLOWED"),
-            ("netflix.com", "ALLOWED"),
-            ("blaze.com", "BLOCKED"),
-            ("youtube.com", "ALLOWED"),
-            ("microsoft.com", "ALLOWED"),
-            ("torrentz2eu.org", "BLOCKED")
-        ]
-        base_time = datetime.now()
-        for i in range(120):
-            client = random.choice(sample_clients)
-            dom, status = random.choice(sample_domains)
-            # Add some randomness to time within last 6 hours
-            minute_offset = random.randint(1, 360)
-            t = (base_time - timedelta(minutes=minute_offset)).strftime("%Y-%m-%d %H:%M:%S")
-            c.execute(
-                "INSERT INTO query_logs (client_ip, domain, query_type, status, timestamp) VALUES (?, ?, 'A', ?, ?);",
-                (client, dom, status, t)
-            )
-        conn.commit()
-    conn.close()
-
-seed_mock_logs_if_empty()
-
-# Create FastAPI app
-app = FastAPI(title="NetShield DNS Control Panel", version="1.0.0")
+app = FastAPI(title="NetShield DNS Commercial Platform", version="2.0.0")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -61,57 +27,108 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Helper to identify if request is an admin request or a sinkholed blocked domain request
+SESSION_COOKIE_NAME = "netshield_session"
+SESSION_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
+
+# ==================== SESSION / AUTH HELPERS ====================
+
+def _get_secret() -> bytes:
+    settings = db.get_settings()
+    return settings.get("session_secret", "netshield-fallback-secret").encode("utf-8")
+
+def create_session_token(user_id: int, role: str) -> str:
+    payload = {
+        "uid": user_id,
+        "role": role,
+        "exp": int(time.time()) + SESSION_TTL_SECONDS
+    }
+    b64 = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+    sig = hmac.new(_get_secret(), b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{b64}.{sig}"
+
+def decode_session_token(token: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not token or "." not in token:
+        return None
+    try:
+        b64, sig = token.split(".", 1)
+        expected_sig = hmac.new(_get_secret(), b64.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(b64.encode("utf-8")).decode("utf-8"))
+        if payload.get("exp", 0) < int(time.time()):
+            return None
+        user = db.get_user_by_id(payload["uid"])
+        if not user or user.get("is_active") != 1:
+            return None
+        return user
+    except Exception:
+        return None
+
+def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    return decode_session_token(token)
+
+def require_admin(request: Request) -> Dict[str, Any]:
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Autenticação necessária.")
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Acesso restrito ao administrador.")
+    return user
+
+def require_auth(request: Request) -> Dict[str, Any]:
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Autenticação necessária.")
+    return user
+
+# Helper to identify if request is an admin/portal host or a sinkholed blocked domain request
 def is_admin_host(host_header: str, settings: dict) -> bool:
     if not host_header:
         return True
     host = host_header.split(":")[0].lower()
     server_ip = settings.get("server_ip", "").strip().lower()
-    # If accessed by IP, localhost, or your DuckDNS / dynamic DNS domains, treat as admin!
-    if host in ["localhost", "127.0.0.1", "0.0.0.0", server_ip]:
+    if host in ["localhost", "127.0.0.1", "0.0.0.0", "testserver", server_ip]:
         return True
     if host.endswith(".duckdns.org") or host.endswith(".ddns.net") or "painel" in host:
         return True
     return False
 
-# Root route
+def get_real_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    real_ip = request.headers.get("x-real-ip")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+# ==================== PUBLIC & PAGE ROUTES ====================
+
 @app.get("/", response_class=HTMLResponse)
 async def index_or_block(request: Request, domain: Optional[str] = None):
     settings = db.get_settings()
     host_header = request.headers.get("host", "")
     req_domain = domain or host_header.split(":")[0].lower()
 
-    # Check if requested domain is in our blocked list
     blocked_info = db.get_blocked_domain_info(req_domain)
-    
-    # If explicitly requesting dashboard or coming via server direct IP
+
+    # If coming via server IP, DuckDNS domain, or explicit ?admin=1
     if request.query_params.get("admin") == "1" or (is_admin_host(host_header, settings) and not domain and not blocked_info):
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-                "settings": settings,
-                "page_title": "NetShield DNS - Painel de Controle"
-            }
-        )
+        user = get_current_user(request)
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        if user.get("role") == "admin":
+            return RedirectResponse(url="/admin", status_code=302)
+        return RedirectResponse(url="/cliente", status_code=302)
 
     # Otherwise, render the Block Page
     reason = blocked_info.get("reason") if blocked_info else settings.get("block_message_default")
     category = blocked_info.get("category") if blocked_info else "Política de Acesso"
-    
-    # Log hit in blocked_domains
+
     if blocked_info:
         db.increment_hits(req_domain)
-        # Get real client IP forwarded by Nginx
-        forwarded_for = request.headers.get("x-forwarded-for")
-        real_ip = request.headers.get("x-real-ip")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
-        elif real_ip:
-            client_ip = real_ip.strip()
-        else:
-            client_ip = request.client.host if request.client else "127.0.0.1"
-
+        client_ip = get_real_client_ip(request)
         db.log_query(client_ip=client_ip, domain=req_domain, status="BLOCKED")
 
     return templates.TemplateResponse(
@@ -121,21 +138,69 @@ async def index_or_block(request: Request, domain: Optional[str] = None):
             "domain": req_domain,
             "reason": reason,
             "category": category,
-            "client_ip": request.client.host if request.client else "Desconhecido",
+            "client_ip": get_real_client_ip(request),
             "timestamp": datetime.now().strftime("%d/%m/%Y às %H:%M:%S"),
             "contact_email": settings.get("admin_contact", "suporte@rede.local")
         }
     )
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/admin" if user["role"] == "admin" else "/cliente", status_code=302)
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"page_title": "Entrar | NetShield DNS"}
+    )
+
+@app.get("/logout")
+async def logout_route():
+    resp = RedirectResponse(url="/login", status_code=302)
+    resp.delete_cookie(SESSION_COOKIE_NAME)
+    return resp
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") != "admin":
+        return RedirectResponse(url="/cliente", status_code=302)
+
     settings = db.get_settings()
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "settings": settings,
-            "page_title": "NetShield DNS - Painel de Controle"
+            "user": user,
+            "page_title": "NetShield DNS - Painel Administrativo"
+        }
+    )
+
+@app.get("/cliente", response_class=HTMLResponse)
+async def client_portal(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") == "admin":
+        return RedirectResponse(url="/admin", status_code=302)
+
+    client_info = db.get_client_by_user_id(user["id"])
+    devices = db.list_devices(client_info["id"]) if client_info else []
+    settings = db.get_settings()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="client_portal.html",
+        context={
+            "user": user,
+            "client": client_info,
+            "devices": devices,
+            "settings": settings,
+            "page_title": "Portal do Assinante | NetShield DNS"
         }
     )
 
@@ -153,101 +218,371 @@ async def explicit_blocked_page(request: Request, domain: str = "sitebloqueado.c
             "domain": domain,
             "reason": reason,
             "category": category,
-            "client_ip": request.client.host if request.client else "127.0.0.1",
+            "client_ip": get_real_client_ip(request),
             "timestamp": datetime.now().strftime("%d/%m/%Y às %H:%M:%S"),
             "contact_email": settings.get("admin_contact", "suporte@rede.local")
         }
     )
 
-# ==================== API ENDPOINTS ====================
+# ==================== AUTH API ====================
+
+@app.post("/api/auth/login")
+async def api_login(response: Response, username: str = Form(...), password: str = Form(...)):
+    user = db.get_user_by_username(username)
+    if not user or not db.verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos.")
+    if user.get("is_active") != 1:
+        raise HTTPException(status_code=403, detail="Conta desativada.")
+
+    token = create_session_token(user["id"], user["role"])
+    redirect_to = "/admin" if user["role"] == "admin" else "/cliente"
+    resp = JSONResponse({"success": True, "role": user["role"], "redirect": redirect_to})
+    resp.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=SESSION_TTL_SECONDS
+    )
+    return resp
+
+@app.post("/api/auth/change-password")
+async def api_change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...)
+):
+    user_session = require_auth(request)
+    full_user = db.get_user_by_username(user_session["username"])
+    if not full_user or not db.verify_password(current_password, full_user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Senha atual incorreta.")
+    if len(new_password.strip()) < 6:
+        raise HTTPException(status_code=400, detail="A nova senha deve ter pelo menos 6 caracteres.")
+    db.update_user_password(full_user["id"], new_password.strip())
+    return {"success": True, "message": "Senha alterada com sucesso!"}
+
+# ==================== STATS & DNS API (ADMIN) ====================
 
 @app.get("/api/stats")
-async def get_stats():
+async def get_stats(request: Request):
+    require_admin(request)
     return db.get_stats()
 
 @app.get("/api/blocked-domains")
-async def get_blocked_domains(search: Optional[str] = None):
+async def get_blocked_domains(request: Request, search: Optional[str] = None):
+    require_admin(request)
     domains = db.list_blocked_domains(search=search)
     return {"domains": domains, "total": len(domains)}
 
+@app.get("/api/categories")
+async def get_categories(request: Request):
+    require_admin(request)
+    return {"categories": db.list_categories_summary()}
+
+@app.post("/api/categories/toggle")
+async def toggle_category(request: Request, category: str = Form(...), enable: int = Form(...)):
+    require_admin(request)
+    updated = db.toggle_category(category, enable)
+    sync_res = dns_manager.sync_dnsmasq_blocklist()
+    return {"success": True, "updated": updated, "sync": sync_res}
+
 @app.post("/api/blocked-domains")
 async def add_domain(
+    request: Request,
     domain: str = Form(...),
     reason: str = Form(""),
     category: str = Form("Geral")
 ):
+    require_admin(request)
     clean_domain = domain.strip().lower()
     if not clean_domain:
         raise HTTPException(status_code=400, detail="O nome do domínio não pode ser vazio.")
-    
+
     success = db.add_blocked_domain(domain=clean_domain, reason=reason, category=category)
     if not success:
         raise HTTPException(status_code=409, detail="Este domínio já está cadastrado na lista de bloqueios.")
 
-    # Automatically synchronize with dnsmasq
     sync_result = dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "domain": clean_domain, "sync": sync_result}
 
 @app.post("/api/blocked-domains/{domain_id}/toggle")
-async def toggle_domain(domain_id: int):
+async def toggle_domain(request: Request, domain_id: int):
+    require_admin(request)
     new_state = db.toggle_blocked_domain(domain_id)
     if new_state is None:
         raise HTTPException(status_code=404, detail="Domínio não encontrado.")
-    
+
     sync_result = dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "enabled": new_state, "sync": sync_result}
 
 @app.delete("/api/blocked-domains/{domain_id}")
-async def delete_domain(domain_id: int):
+async def delete_domain(request: Request, domain_id: int):
+    require_admin(request)
     deleted = db.delete_blocked_domain(domain_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Domínio não encontrado.")
-    
+
     sync_result = dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "sync": sync_result}
 
 @app.post("/api/blocked-domains/bulk")
-async def bulk_add_domains(domains_text: str = Form(...), category: str = Form("Geral"), reason: str = Form("Bloqueio em massa")):
+async def bulk_add_domains(
+    request: Request,
+    domains_text: str = Form(...),
+    category: str = Form("Geral"),
+    reason: str = Form("Bloqueio em massa")
+):
+    require_admin(request)
     lines = [line.strip().lower() for line in domains_text.splitlines() if line.strip()]
     added_count = 0
     for dom in lines:
         if db.add_blocked_domain(dom, reason=reason, category=category):
             added_count += 1
-    
+
     sync_result = dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "added_count": added_count, "total_submitted": len(lines), "sync": sync_result}
 
 @app.get("/api/logs")
-async def get_logs(limit: int = 50, filter_status: Optional[str] = None, search: Optional[str] = None):
-    # Try parsing real dnsmasq logs if available
+async def get_logs(request: Request, limit: int = 50, filter_status: Optional[str] = None, search: Optional[str] = None):
+    require_admin(request)
     dns_manager.parse_dnsmasq_log_stream()
     logs = db.get_recent_logs(limit=limit, filter_status=filter_status, search=search)
     return {"logs": logs, "count": len(logs)}
 
 @app.post("/api/sync-dns")
-async def force_sync_dns():
-    res = dns_manager.sync_dnsmasq_blocklist()
-    return res
+async def force_sync_dns(request: Request):
+    require_admin(request)
+    return dns_manager.sync_dnsmasq_blocklist()
 
 @app.get("/api/settings")
-async def get_settings():
-    return db.get_settings()
+async def get_settings(request: Request):
+    require_admin(request)
+    s = db.get_settings()
+    s.pop("session_secret", None)
+    return s
 
 @app.post("/api/settings")
 async def update_settings(
+    request: Request,
     server_ip: str = Form(...),
     upstream_dns: str = Form(...),
     block_message_default: str = Form(...),
     admin_contact: str = Form(...)
 ):
+    require_admin(request)
     db.update_setting("server_ip", server_ip.strip())
     db.update_setting("upstream_dns", upstream_dns.strip())
     db.update_setting("block_message_default", block_message_default.strip())
     db.update_setting("admin_contact", admin_contact.strip())
-    
-    # Re-sync DNS config with new server IP
+
     dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "message": "Configurações atualizadas com sucesso."}
+
+# ==================== PLANS API (ADMIN) ====================
+
+@app.get("/api/plans")
+async def api_list_plans(request: Request):
+    require_admin(request)
+    return {"plans": db.list_plans()}
+
+@app.post("/api/plans")
+async def api_create_plan(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+    price: float = Form(...),
+    duration_days: int = Form(30),
+    max_devices: int = Form(2)
+):
+    require_admin(request)
+    plan_id = db.create_plan(name=name, description=description, price=price, duration_days=duration_days, max_devices=max_devices)
+    if not plan_id:
+        raise HTTPException(status_code=409, detail="Já existe um plano com esse nome.")
+    return {"success": True, "plan_id": plan_id}
+
+@app.post("/api/plans/{plan_id}/toggle")
+async def api_toggle_plan(request: Request, plan_id: int):
+    require_admin(request)
+    val = db.toggle_plan(plan_id)
+    if val is None:
+        raise HTTPException(status_code=404, detail="Plano não encontrado.")
+    return {"success": True, "is_active": val}
+
+@app.delete("/api/plans/{plan_id}")
+async def api_delete_plan(request: Request, plan_id: int):
+    require_admin(request)
+    if not db.delete_plan(plan_id):
+        raise HTTPException(status_code=404, detail="Plano não encontrado.")
+    return {"success": True}
+
+# ==================== CLIENTS & WIREGUARD PROVISIONING API ====================
+
+@app.get("/api/clients")
+async def api_list_clients(request: Request, search: Optional[str] = None):
+    require_admin(request)
+    clients = db.list_clients(search=search)
+    return {"clients": clients, "total": len(clients)}
+
+@app.post("/api/clients")
+async def api_create_client(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(""),
+    plan_id: int = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    notes: str = Form(""),
+    auto_create_device: int = Form(1)
+):
+    require_admin(request)
+    client_id = db.create_client(
+        name=name,
+        email=email,
+        phone=phone,
+        plan_id=plan_id,
+        username=username,
+        password=password,
+        notes=notes
+    )
+    if not client_id:
+        raise HTTPException(status_code=409, detail="Nome de usuário já está em uso.")
+
+    device_id = None
+    if auto_create_device == 1:
+        priv, pub = wg_manager.generate_wg_keypair()
+        vpn_ip = db.get_next_vpn_ip()
+        device_id = db.add_device(
+            client_id=client_id,
+            name="Dispositivo Principal",
+            vpn_ip=vpn_ip,
+            wg_public_key=pub,
+            wg_private_key=priv
+        )
+        wg_manager.sync_wireguard_peers()
+
+    return {"success": True, "client_id": client_id, "device_id": device_id}
+
+@app.post("/api/clients/{client_id}/status")
+async def api_update_client_status(request: Request, client_id: int, status: str = Form(...)):
+    require_admin(request)
+    if not db.update_client_status(client_id, status):
+        raise HTTPException(status_code=400, detail="Status inválido ou cliente não encontrado.")
+    sync_res = wg_manager.sync_wireguard_peers()
+    return {"success": True, "status": status, "wg_sync": sync_res}
+
+@app.post("/api/clients/{client_id}/renew")
+async def api_renew_client(request: Request, client_id: int, extra_days: Optional[int] = Form(None)):
+    require_admin(request)
+    new_exp = db.renew_client(client_id, extra_days=extra_days)
+    if not new_exp:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    sync_res = wg_manager.sync_wireguard_peers()
+    return {"success": True, "expires_at": new_exp, "wg_sync": sync_res}
+
+@app.delete("/api/clients/{client_id}")
+async def api_delete_client(request: Request, client_id: int):
+    require_admin(request)
+    if not db.delete_client(client_id):
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    wg_manager.sync_wireguard_peers()
+    return {"success": True}
+
+@app.get("/api/clients/{client_id}/devices")
+async def api_client_devices(request: Request, client_id: int):
+    user = require_auth(request)
+    if user["role"] != "admin":
+        client = db.get_client_by_user_id(user["id"])
+        if not client or client["id"] != client_id:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+    devices = db.list_devices(client_id=client_id)
+    return {"devices": devices}
+
+@app.post("/api/clients/{client_id}/devices")
+async def api_add_client_device(request: Request, client_id: int, name: str = Form(...)):
+    user = require_auth(request)
+    client = db.get_client(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+
+    if user["role"] != "admin":
+        own_client = db.get_client_by_user_id(user["id"])
+        if not own_client or own_client["id"] != client_id:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    existing = db.list_devices(client_id=client_id)
+    max_dev = client.get("max_devices") or 2
+    if len(existing) >= max_dev:
+        raise HTTPException(status_code=400, detail=f"Limite de {max_dev} dispositivo(s) do plano atingido.")
+
+    priv, pub = wg_manager.generate_wg_keypair()
+    vpn_ip = db.get_next_vpn_ip()
+    device_id = db.add_device(
+        client_id=client_id,
+        name=name,
+        vpn_ip=vpn_ip,
+        wg_public_key=pub,
+        wg_private_key=priv
+    )
+    wg_manager.sync_wireguard_peers()
+    return {"success": True, "device_id": device_id, "vpn_ip": vpn_ip}
+
+@app.get("/api/devices/{device_id}/qr")
+async def api_device_qr(request: Request, device_id: int):
+    user = require_auth(request)
+    device = db.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
+
+    if user["role"] != "admin":
+        client = db.get_client_by_user_id(user["id"])
+        if not client or client["id"] != device["client_id"]:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    config_text = wg_manager.build_client_config(device)
+    qr_svg = wg_manager.generate_qr_svg(config_text)
+    return {
+        "device": device,
+        "config_text": config_text,
+        "qr_svg": qr_svg
+    }
+
+@app.get("/api/devices/{device_id}/config")
+async def api_download_device_config(request: Request, device_id: int):
+    user = require_auth(request)
+    device = db.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
+
+    if user["role"] != "admin":
+        client = db.get_client_by_user_id(user["id"])
+        if not client or client["id"] != device["client_id"]:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    config_text = wg_manager.build_client_config(device)
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in device["name"].lower())
+    return PlainTextResponse(
+        content=config_text,
+        headers={"Content-Disposition": f"attachment; filename=netshield_{safe_name}.conf"}
+    )
+
+@app.delete("/api/devices/{device_id}")
+async def api_delete_device(request: Request, device_id: int):
+    user = require_auth(request)
+    device = db.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
+
+    if user["role"] != "admin":
+        client = db.get_client_by_user_id(user["id"])
+        if not client or client["id"] != device["client_id"]:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    db.delete_device(device_id)
+    wg_manager.sync_wireguard_peers()
+    return {"success": True}
+
+# ==================== UNBLOCK REQUESTS ====================
 
 @app.post("/api/unblock-request")
 async def submit_unblock_request(
@@ -255,11 +590,12 @@ async def submit_unblock_request(
     reason: str = Form(...),
     request: Request = None
 ):
-    client_ip = request.client.host if request and request.client else "Desconhecido"
+    client_ip = get_real_client_ip(request) if request else "Desconhecido"
     db.create_unblock_request(domain=domain, client_ip=client_ip, reason=reason)
     return {"success": True, "message": "Solicitação enviada ao administrador da rede."}
 
 @app.get("/api/unblock-requests")
-async def get_unblock_requests():
+async def get_unblock_requests(request: Request):
+    require_admin(request)
     reqs = db.list_unblock_requests()
     return {"requests": reqs, "total": len(reqs)}
