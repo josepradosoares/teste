@@ -41,8 +41,8 @@ else
   if [ -z "$LOCAL_IP" ]; then
     LOCAL_IP=$(hostname -I | awk '{print $1}')
   fi
-  SERVER_IP="${LOCAL_IP:-127.0.0.1}"
-  echo -e "${GREEN}✓ IP Local detectado: ${SERVER_IP}${NC}"
+  SERVER_IP="${LOCAL_IP:-152.67.44.54}"
+  echo -e "${GREEN}✓ IP Local/Fallback detectado: ${SERVER_IP}${NC}"
 fi
 
 # 3. Atualizar repositórios e instalar pacotes essenciais
@@ -126,10 +126,14 @@ iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
 iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
+iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
 # Tentar persistir regras se iptables-persistent estiver instalado
 if command -v netfilter-persistent >/dev/null 2>&1; then
   netfilter-persistent save >/dev/null 2>&1 || true
 fi
+
+NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db /opt/netshield/venv/bin/python -c "import sys; sys.path.append('/opt/netshield/web'); import wg_manager; wg_manager.sync_router_dns_nat()" 2>/dev/null || true
 
 # 9. Instalar e iniciar o serviço systemd
 echo -e "\n${CYAN}[9/9] Criando e iniciando o serviço NetShield Web Panel...${NC}"

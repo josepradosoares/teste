@@ -111,9 +111,10 @@ Para que o servidor filtre o tráfego dos dispositivos, aponte o **DNS Primário
 
 ### 1. No Roteador da Rede (Recomendado para toda a empresa ou casa)
 1. Acesse o painel do seu roteador (ex: `192.168.1.1` ou `192.168.0.1`).
-2. Vá em **Configurações DHCP / Rede Local (LAN)**.
-3. No campo **DNS Primário (Primary DNS)**, digite o IP do seu servidor Linux.
-4. Salve e reinicie o roteador. Pronto: **todos os celulares, TVs e computadores da rede serão protegidos automaticamente!**
+2. Vá em **Configurações DHCP / Rede Local (LAN)** (ou **WAN / Internet**).
+3. No campo **DNS Primário (Primary DNS)**, digite o IP do servidor: `152.67.44.54` (deixe o DNS Secundário vazio ou `0.0.0.0`).
+4. Salve e reinicie o roteador.
+5. Para **Planos Pagos**, acesse o **Portal do Assinante** (`/cliente`) e clique em **Vincular Meu IP Atual** para que seu roteador receba a lista de bloqueio completa. IPs não vinculados recebem automaticamente o **Plano Free (Família & Cristão)**.
 
 ### 2. No Windows (Individual)
 1. Abra **Configurações** &rarr; **Rede e Internet** &rarr; **Propriedades da Conexão**.
@@ -141,6 +142,18 @@ sudo systemctl restart netshield
 
 # Ver consultas DNS em tempo real no terminal
 sudo tail -f /var/log/dnsmasq.log
+```
+
+---
+
+## 🔄 Como Atualizar no Servidor Linux
+
+Conecte via SSH no servidor, entre na pasta do repositório e execute:
+
+```bash
+cd ~/netshield   # ou o caminho onde clonou o repositório
+git pull origin main
+sudo bash update.sh
 ```
 
 ---

@@ -2,6 +2,7 @@ import sqlite3
 import os
 import hashlib
 import hmac
+import ipaddress
 import secrets
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
@@ -122,6 +123,7 @@ def init_db():
         name TEXT NOT NULL,
         email TEXT NOT NULL,
         phone TEXT DEFAULT '',
+        router_ip TEXT DEFAULT '',
         status TEXT NOT NULL DEFAULT 'ACTIVE',
         expires_at TEXT NOT NULL,
         notes TEXT DEFAULT '',
@@ -130,6 +132,12 @@ def init_db():
         FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL
     );
     """)
+
+    # Safe migration for existing databases lacking router_ip
+    cursor.execute("PRAGMA table_info(clients);")
+    client_cols = {row[1] for row in cursor.fetchall()}
+    if "router_ip" not in client_cols:
+        cursor.execute("ALTER TABLE clients ADD COLUMN router_ip TEXT DEFAULT '';")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS devices (
@@ -541,6 +549,44 @@ def delete_client(client_id: int) -> bool:
     conn.commit()
     conn.close()
     return True
+
+def update_client_router_ip(client_id: int, router_ip: Optional[str]) -> bool:
+    """Validates and updates the public IPv4 address of a client's router (or clears it when empty)."""
+    cleaned = (router_ip or "").strip()
+    if cleaned:
+        try:
+            addr = ipaddress.IPv4Address(cleaned)
+            if addr.is_loopback or addr.is_unspecified or addr.is_multicast:
+                return False
+            cleaned = str(addr)
+        except ValueError:
+            return False
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE clients SET router_ip = ? WHERE id = ?;", (cleaned, client_id))
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
+def list_active_paid_router_ips() -> List[str]:
+    """Returns distinct public router IPs for ACTIVE, non-expired clients on paid plans."""
+    refresh_expired_clients()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT DISTINCT TRIM(c.router_ip) as router_ip
+    FROM clients c
+    JOIN plans p ON c.plan_id = p.id
+    WHERE c.status = 'ACTIVE'
+      AND COALESCE(p.price, 0) > 0
+      AND c.router_ip IS NOT NULL
+      AND TRIM(c.router_ip) != '';
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [row["router_ip"] for row in rows if row["router_ip"]]
 
 def list_devices(client_id: Optional[int] = None) -> List[Dict[str, Any]]:
     conn = get_db()

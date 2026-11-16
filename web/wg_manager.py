@@ -105,6 +105,7 @@ def sync_wireguard_peers() -> Dict[str, Any]:
     wg_port = settings.get("wg_endpoint_port", "51820").strip() or "51820"
 
     if not priv_key:
+        sync_router_dns_nat()
         return {"success": False, "synced": False, "reason": "WireGuard server key not present on this host", "active_peers": len(active_devices)}
 
     # Detect WAN interface
@@ -149,6 +150,7 @@ def sync_wireguard_peers() -> Dict[str, Any]:
         )
         _ensure_wg_forwarding(wan_iface)
         _sync_free_dns_nat(active_devices)
+        sync_router_dns_nat()
         return {"success": True, "synced": True, "active_peers": len(active_devices)}
     except Exception as e:
         logger.warning(f"Could not sync WireGuard config: {e}")
@@ -204,3 +206,43 @@ def _sync_free_dns_nat(active_devices):
                     )
     except Exception as e:
         logger.warning(f"Could not sync Free DNS NAT rules: {e}")
+
+
+def sync_router_dns_nat() -> Dict[str, Any]:
+    """
+    Routes external router DNS (UDP/TCP 53, non-wg0) by subscriber plan:
+      - Registered ACTIVE paid-plan router IPs -> RETURN (served by dnsmasq on port 53)
+      - All other external IPs (Free tier or unregistered) -> REDIRECT to port 5354 (dnsmasq-free)
+    """
+    paid_ips = db.list_active_paid_router_ips()
+    try:
+        subprocess.run(["iptables", "-t", "nat", "-N", "NETSHIELD_ROUTER_DNS"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        subprocess.run(["iptables", "-t", "nat", "-F", "NETSHIELD_ROUTER_DNS"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+
+        for proto in ("udp", "tcp"):
+            chk = subprocess.run(
+                ["iptables", "-t", "nat", "-C", "PREROUTING", "!", "-i", "wg0", "!", "-s", "127.0.0.0/8", "-p", proto, "--dport", "53", "-j", "NETSHIELD_ROUTER_DNS"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+            )
+            if chk.returncode != 0:
+                subprocess.run(
+                    ["iptables", "-t", "nat", "-I", "PREROUTING", "1", "!", "-i", "wg0", "!", "-s", "127.0.0.0/8", "-p", proto, "--dport", "53", "-j", "NETSHIELD_ROUTER_DNS"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+                )
+
+        for ip in paid_ips:
+            subprocess.run(
+                ["iptables", "-t", "nat", "-A", "NETSHIELD_ROUTER_DNS", "-s", f"{ip}/32", "-j", "RETURN"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+            )
+
+        for proto in ("udp", "tcp"):
+            subprocess.run(
+                ["iptables", "-t", "nat", "-A", "NETSHIELD_ROUTER_DNS", "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-ports", "5354"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+            )
+
+        return {"success": True, "paid_router_ips": len(paid_ips)}
+    except Exception as e:
+        logger.warning(f"Could not sync Router DNS NAT rules: {e}")
+        return {"success": False, "paid_router_ips": len(paid_ips), "reason": str(e)}

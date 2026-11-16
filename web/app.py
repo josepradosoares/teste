@@ -203,6 +203,7 @@ async def client_portal(request: Request):
     client_info = db.get_client_by_user_id(user["id"])
     devices = db.list_devices(client_info["id"]) if client_info else []
     settings = db.get_settings()
+    detected_ip = get_real_client_ip(request)
 
     return templates.TemplateResponse(
         request=request,
@@ -212,6 +213,7 @@ async def client_portal(request: Request):
             "client": client_info,
             "devices": devices,
             "settings": settings,
+            "detected_ip": detected_ip,
             "page_title": "Portal do Assinante | NetShield DNS"
         }
     )
@@ -752,6 +754,20 @@ async def api_delete_device(request: Request, device_id: int):
     db.delete_device(device_id)
     wg_manager.sync_wireguard_peers()
     return {"success": True}
+
+@app.post("/api/portal/router-ip")
+async def api_update_portal_router_ip(request: Request, router_ip: str = Form("")):
+    user = require_auth(request)
+    client = db.get_client_by_user_id(user["id"])
+    if not client:
+        raise HTTPException(status_code=404, detail="Assinatura não encontrada para esta conta.")
+
+    target_ip = get_real_client_ip(request) if router_ip.strip().lower() == "auto" else router_ip.strip()
+    if not db.update_client_router_ip(client["id"], target_ip):
+        raise HTTPException(status_code=400, detail="Informe um endereço IPv4 público válido (ex: 177.12.34.56) ou deixe vazio para desvincular.")
+
+    nat_sync = wg_manager.sync_router_dns_nat()
+    return {"success": True, "router_ip": target_ip, "nat_sync": nat_sync}
 
 # ==================== UNBLOCK REQUESTS ====================
 

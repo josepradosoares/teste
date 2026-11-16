@@ -29,6 +29,9 @@ SERVER_IP=$(curl -s --connect-timeout 4 https://api.ipify.org 2>/dev/null || cur
 if [ -z "$SERVER_IP" ] || [[ ! "$SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   SERVER_IP=$(hostname -I | awk '{print $1}')
 fi
+if [ -z "$SERVER_IP" ] || [[ "$SERVER_IP" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.) ]]; then
+  SERVER_IP="152.67.44.54"
+fi
 echo -e "${GREEN}✓ IP do Servidor configurado: ${SERVER_IP}${NC}"
 
 echo -e "\n${CYAN}[2/7] Atualizando arquivos da aplicação a partir do repositório...${NC}"
@@ -67,7 +70,6 @@ EOF
 cat << 'EOF' > /etc/dnsmasq-free.conf
 # NetShield DNS - Instância Plano Free (Família & Cristão)
 port=5354
-listen-address=10.8.0.1,127.0.0.1
 bind-dynamic
 no-resolv
 no-poll
@@ -129,6 +131,8 @@ iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
 iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
+iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
 
 # 2. Instalar e habilitar o serviço systemd de persistência do firewall
@@ -144,6 +148,8 @@ ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
+ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
 RemainAfterExit=yes
 
@@ -174,7 +180,7 @@ systemctl restart dnsmasq
 systemctl restart netshield-dns-free.service
 systemctl restart netshield.service
 systemctl restart nginx
-/opt/netshield/venv/bin/python -c "import sys; sys.path.append('/opt/netshield/web'); import wg_manager; wg_manager.sync_wireguard_peers()" 2>/dev/null || true
+NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db /opt/netshield/venv/bin/python -c "import sys; sys.path.append('/opt/netshield/web'); import wg_manager; wg_manager.sync_wireguard_peers()" 2>/dev/null || true
 
 # Aguardar 2 segundos para o FastAPI iniciar na porta 8080
 sleep 2

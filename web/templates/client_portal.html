@@ -143,6 +143,68 @@
         </table>
       </div>
     </section>
+
+    <section class="surface-card" style="margin-top: 1.5rem;">
+      {% set public_dns_ip = settings.get('server_ip') if settings.get('server_ip') and settings.get('server_ip') not in ('127.0.0.1', '192.168.1.100') else '152.67.44.54' %}
+      <div class="surface-header" style="margin-bottom: 1rem;">
+        <div>
+          <h2 class="surface-title">🌐 Configurar no Roteador (DNS Direto — Toda a Rede Wi-Fi)</h2>
+          <p class="surface-desc">
+            Proteja Smart TVs, consoles, celulares e computadores da sua casa ou empresa sem instalar aplicativo, apontando o DNS do seu roteador para o servidor.
+          </p>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+          <div style="font-size: 0.78rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em;">DNS Primário do Servidor</div>
+          <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem;">
+            <code class="font-mono" id="routerDnsIpCode" style="font-size: 1.2rem; font-weight: 700; color: var(--accent-primary);">152.67.44.54</code>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="copyRouterDnsIp('152.67.44.54')">📋 Copiar IP</button>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.45rem;">
+            {% if public_dns_ip != '152.67.44.54' %}
+              IP detectado do servidor: <span class="font-mono">{{ public_dns_ip }}</span> &bull;
+            {% endif %}
+            Deixe o <strong>DNS Secundário</strong> em branco (ou <span class="font-mono">0.0.0.0</span>) para evitar que os aparelhos burlem o filtro.
+          </p>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+          <div style="font-size: 0.78rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em;">Vínculo do Seu Plano ao Roteador</div>
+          <div style="font-size: 0.85rem; margin-top: 0.4rem; color: var(--text-primary);">
+            IP atual detectado: <strong class="font-mono">{{ detected_ip }}</strong><br>
+            IP vinculado ao plano: <strong class="font-mono" id="boundRouterIpText">{{ client.router_ip if client.router_ip else 'Nenhum (usando Plano Free padrão)' }}</strong>
+          </div>
+          <form id="routerIpForm" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.65rem;">
+            <input type="text" id="routerIpInput" name="router_ip" class="form-input font-mono" style="flex: 1; min-width: 150px;" value="{{ client.router_ip or '' }}" placeholder="Ex: {{ detected_ip }}">
+            <button type="button" class="btn btn-primary btn-sm" onclick="bindCurrentRouterIp()">⚡ Vincular Meu IP Atual</button>
+            <button type="submit" class="btn btn-secondary btn-sm">Salvar IP</button>
+          </form>
+          <p style="font-size: 0.76rem; color: var(--text-muted); margin-top: 0.45rem;">
+            {% if client.plan_price > 0 %}
+              ⭐ Como você possui <strong>{{ client.plan_name }}</strong>, vincular o IP público da sua internet libera a <strong>Proteção Completa</strong> direto no roteador.
+            {% else %}
+              🛡️ No <strong>Plano Free</strong>, o IP <span class="font-mono">152.67.44.54</span> já aplica automaticamente o filtro <strong>Família &amp; Cristão</strong> no seu roteador.
+            {% endif %}
+          </p>
+        </div>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1rem;">
+        <h3 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.6rem;">Passo a passo para configurar no seu roteador (TP-Link, Intelbras, Huawei, Vivo/Claro, MikroTik)</h3>
+        <ol style="margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
+          <li>Acesse o painel do roteador no navegador (geralmente <code class="font-mono">192.168.0.1</code> ou <code class="font-mono">192.168.1.1</code>) com o login impresso na etiqueta do aparelho.</li>
+          <li>Vá em <strong>Rede (Network) &rarr; LAN / Servidor DHCP</strong> (em alguns modelos fica em <strong>Internet / WAN &rarr; DNS Manual</strong>).</li>
+          <li>Ative a opção de <strong>DNS Manual / Personalizado</strong> e preencha o <strong>DNS Primário</strong> com <code class="font-mono">152.67.44.54</code>.</li>
+          <li>Deixe o <strong>DNS Secundário</strong> vazio (ou <code class="font-mono">0.0.0.0</code>). Se colocar <code class="font-mono">8.8.8.8</code> ou <code class="font-mono">1.1.1.1</code> no secundário, parte dos sites bloqueados pode escapar.</li>
+          <li>Clique em <strong>Salvar</strong>, reinicie o roteador (ou desconecte e conecte o Wi-Fi dos aparelhos) e, se tiver plano pago, clique em <strong>Vincular Meu IP Atual</strong> acima.</li>
+        </ol>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.75rem; border-top: 1px solid var(--border-subtle); padding-top: 0.6rem;">
+          💡 <strong>Dica (IP Dinâmico / CGNAT / 4G):</strong> Se o seu provedor trocar seu IP público com frequência ou usar CGNAT compartilhado, use o aplicativo <strong>WireGuard VPN</strong> (seção acima) nos celulares e notebooks para manter seu plano ativo em qualquer rede, inclusive no 4G/5G.
+        </p>
+      </div>
+    </section>
     {% else %}
     <section class="surface-card">
       <h2 class="surface-title">Conta sem assinatura vinculada</h2>
@@ -323,6 +385,47 @@
         document.querySelectorAll(".modal-overlay.active").forEach(m => m.classList.remove("active"));
       }
     });
+
+    window.copyRouterDnsIp = async function(ip) {
+      try {
+        await navigator.clipboard.writeText(ip);
+        showClientToast(`IP ${ip} copiado para a área de transferência!`, "success");
+      } catch {
+        showClientToast(`Configure o DNS Primário como ${ip}`, "success");
+      }
+    };
+
+    async function submitRouterIp(value) {
+      const fd = new FormData();
+      fd.append("router_ip", value);
+      const res = await fetch("/api/portal/router-ip", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        showClientToast(data.detail || "Erro ao vincular IP do roteador.", "error");
+        return;
+      }
+      const inp = document.getElementById("routerIpInput");
+      const lbl = document.getElementById("boundRouterIpText");
+      if (inp) inp.value = data.router_ip || "";
+      if (lbl) lbl.textContent = data.router_ip ? data.router_ip : "Nenhum (usando Plano Free padrão)";
+      showClientToast(
+        data.router_ip ? `IP ${data.router_ip} vinculado ao seu plano!` : "IP do roteador desvinculado.",
+        "success"
+      );
+    }
+
+    window.bindCurrentRouterIp = function() {
+      submitRouterIp("auto");
+    };
+
+    const routerIpForm = document.getElementById("routerIpForm");
+    if (routerIpForm) {
+      routerIpForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const val = document.getElementById("routerIpInput").value;
+        submitRouterIp(val);
+      });
+    }
   </script>
 </body>
 </html>
