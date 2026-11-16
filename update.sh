@@ -129,7 +129,8 @@ echo -e "\n${CYAN}[5/7] Configurando Firewall Permanente (Sobrevive a qualquer R
 # 1. Aplicar imediatamente no iptables
 iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true
+iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
@@ -146,7 +147,8 @@ Before=network.target
 Type=oneshot
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
+ExecStart=/bin/sh -c '/sbin/iptables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true'
+ExecStart=/sbin/iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
@@ -169,8 +171,20 @@ echo -e "\n${CYAN}[5/7] Configurando Fuso Horário (São Paulo - Brasil)...${NC}
 timedatectl set-timezone America/Sao_Paulo || true
 echo -e "${GREEN}✓ Fuso horário configurado para $(timedatectl | grep "Time zone" || date)${NC}"
 
-echo -e "\n${CYAN}[5.5/7] Otimizando Kernel & Rede (Google BBR + Streaming 4K)...${NC}"
+echo -e "\n${CYAN}[5.5/7] Otimizando Kernel & Rede (Google BBR + Streaming 4K) e Logrotate...${NC}"
 bash "${REPO_DIR}/scripts/optimize_network.sh"
+
+cat << 'EOF' > /etc/logrotate.d/netshield-dnsmasq
+/var/log/dnsmasq.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
 
 echo -e "\n${CYAN}[6/7] Habilitando e iniciando todos os serviços essenciais...${NC}"
 cp "${REPO_DIR}/config/netshield.service" /etc/systemd/system/netshield.service

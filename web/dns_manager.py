@@ -55,12 +55,14 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
     """
     settings = get_settings()
     server_ip = settings.get("server_ip", "127.0.0.1")
+    block_mode = settings.get("block_mode", "sinkhole")
+    target_ip = "0.0.0.0" if block_mode == "null" else server_ip
     blocked_domains = list_blocked_domains()
 
     paid_lines = [
         "# ====================================================",
         "# NetShield DNS - Automated Blocklist (Planos Pagos / Completo)",
-        f"# Server Sinkhole IP: {server_ip}",
+        f"# Block Mode: {block_mode} | Target IP: {target_ip}",
         "# Do not edit manually - managed by NetShield Web Panel",
         "# ====================================================",
         ""
@@ -69,7 +71,7 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
     free_lines = [
         "# ====================================================",
         "# NetShield DNS - Automated Blocklist (Plano Free Família & Cristão)",
-        f"# Server Sinkhole IP: {server_ip}",
+        f"# Block Mode: {block_mode} | Target IP: {target_ip}",
         "# Do not edit manually - managed by NetShield Web Panel",
         "# ====================================================",
         ""
@@ -81,7 +83,7 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
         if item.get("enabled", 1) == 1:
             dom = item["domain"].strip().lower()
             if dom:
-                rule = f"address=/{dom}/{server_ip}"
+                rule = f"address=/{dom}/{target_ip}"
                 paid_lines.append(rule)
                 active_count += 1
                 if item.get("free_included", 0) == 1:
@@ -101,7 +103,8 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
         "success": write_paid and write_free,
         "active_rules": active_count,
         "free_rules": free_count,
-        "sinkhole_ip": server_ip,
+        "sinkhole_ip": target_ip,
+        "block_mode": block_mode,
         "dnsmasq_reloaded": reload_status
     }
 

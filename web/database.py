@@ -163,7 +163,8 @@ def init_db():
         ("session_secret", secrets.token_hex(32)),
         ("wg_endpoint_port", "51820"),
         ("wg_server_pubkey", ""),
-        ("wg_tunnel_mode", "full")
+        ("wg_tunnel_mode", "full"),
+        ("block_mode", "sinkhole")
     ]
     for key, value in default_settings:
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?);", (key, value))
@@ -183,7 +184,7 @@ def init_db():
         "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
         (
             "Plano Free",
-            "Proteção essencial para a família cristã: bloqueia pornografia, apostas/cassinos e ativa SafeSearch em 1 dispositivo.",
+            "Proteção essencial para a família cristã: bloqueia pornografia, apostas/cassinos e ativa SafeSearch em 1 dispositivo VPN + Roteador (152.67.44.54).",
             0.0,
             30,
             1,
@@ -191,19 +192,26 @@ def init_db():
         )
     )
 
-    # Seed default commercial plans if only Free or empty
-    cursor.execute("SELECT COUNT(*) FROM plans WHERE price > 0;")
-    if cursor.fetchone()[0] == 0:
-        initial_plans = [
-            ("Plano Básico", "Proteção DNS + VPN para até 2 dispositivos com bloqueio de anúncios e conteúdo adulto.", 19.90, 30, 2),
-            ("Plano Família", "Proteção completa para até 5 dispositivos com controle parental e redes sociais.", 39.90, 30, 5),
-            ("Plano Empresarial", "Segurança corporativa avançada para até 15 dispositivos com suporte prioritário.", 99.90, 30, 15),
-        ]
-        for name, desc, price, days, max_dev in initial_plans:
-            cursor.execute(
-                "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
-                (name, desc, price, days, max_dev, now)
-            )
+    # Ensure single commercial paid plan exists (Plano Completo - R$ 15,00)
+    cursor.execute(
+        "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
+        (
+            "Plano Completo",
+            "Proteção total (Adulto, Apostas, Malware, Anúncios, Redes Sociais e P2P/Jogos) para até 5 dispositivos VPN + Roteador (152.67.44.54) vinculado.",
+            15.0,
+            30,
+            5,
+            now
+        )
+    )
+
+    # Safely retire legacy default plans if they have no clients attached
+    cursor.execute("""
+        UPDATE plans
+        SET is_active = 0
+        WHERE name IN ('Plano Básico', 'Plano Família', 'Plano Empresarial')
+          AND NOT EXISTS (SELECT 1 FROM clients c WHERE c.plan_id = plans.id);
+    """)
 
     # Seed initial useful blocked domains if empty
     cursor.execute("SELECT COUNT(*) FROM blocked_domains;")
@@ -964,3 +972,14 @@ def update_setting(key: str, value: str):
     cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);", (key, value))
     conn.commit()
     conn.close()
+
+def prune_old_query_logs(days: int = 7) -> int:
+    """Deletes query_logs older than `days` days to prevent unbounded SQLite growth."""
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM query_logs WHERE timestamp < ?;", (cutoff,))
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return deleted

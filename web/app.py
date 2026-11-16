@@ -15,8 +15,9 @@ import database as db
 import dns_manager
 import wg_manager
 
-# Initialize DB on startup
+# Initialize DB on startup and prune old query logs (> 7 days)
 db.init_db()
+db.prune_old_query_logs(7)
 
 app = FastAPI(title="NetShield DNS Commercial Platform", version="2.0.0")
 
@@ -476,15 +477,18 @@ async def update_settings(
     upstream_dns: str = Form(...),
     block_message_default: str = Form(...),
     admin_contact: str = Form(...),
-    wg_tunnel_mode: str = Form("full")
+    wg_tunnel_mode: str = Form("full"),
+    block_mode: str = Form("sinkhole")
 ):
     require_admin(request)
     mode = wg_tunnel_mode.strip() if wg_tunnel_mode.strip() in ["full", "dns_only"] else "full"
+    b_mode = block_mode.strip() if block_mode.strip() in ["sinkhole", "null"] else "sinkhole"
     db.update_setting("server_ip", server_ip.strip())
     db.update_setting("upstream_dns", upstream_dns.strip())
     db.update_setting("block_message_default", block_message_default.strip())
     db.update_setting("admin_contact", admin_contact.strip())
     db.update_setting("wg_tunnel_mode", mode)
+    db.update_setting("block_mode", b_mode)
 
     dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "message": "Configurações atualizadas com sucesso."}

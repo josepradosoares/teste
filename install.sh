@@ -124,10 +124,23 @@ systemctl enable dnsmasq
 echo -e "\n${CYAN}[8/9] Configurando regras de Firewall local (iptables)...${NC}"
 iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true
+iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
+
+cat << 'EOF' > /etc/logrotate.d/netshield-dnsmasq
+/var/log/dnsmasq.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
 # Tentar persistir regras se iptables-persistent estiver instalado
 if command -v netfilter-persistent >/dev/null 2>&1; then
   netfilter-persistent save >/dev/null 2>&1 || true
