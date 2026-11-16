@@ -62,7 +62,7 @@ def build_client_config(device: Dict[str, Any]) -> str:
     tunnel_mode = settings.get("wg_tunnel_mode", "full").strip()
     server_pubkey = get_server_public_key()
 
-    allowed_ips = "10.8.0.1/32" if tunnel_mode == "dns_only" else "0.0.0.0/1, 128.0.0.0/1"
+    allowed_ips = "10.8.0.1/32" if tunnel_mode == "dns_only" else "0.0.0.0/0, ::/0"
 
     return (
         f"[Interface]\n"
@@ -122,8 +122,8 @@ def sync_wireguard_peers() -> Dict[str, Any]:
         f"ListenPort = {wg_port}",
         "MTU = 1420",
         f"PrivateKey = {priv_key}",
-        f"PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE",
-        f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -j MASQUERADE",
+        f"PostUp = sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE",
+        f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -D POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE",
         ""
     ]
 
@@ -147,11 +147,28 @@ def sync_wireguard_peers() -> Dict[str, Any]:
             stderr=subprocess.PIPE,
             timeout=5
         )
+        _ensure_wg_forwarding(wan_iface)
         _sync_free_dns_nat(active_devices)
         return {"success": True, "synced": True, "active_peers": len(active_devices)}
     except Exception as e:
         logger.warning(f"Could not sync WireGuard config: {e}")
         return {"success": False, "synced": False, "reason": str(e), "active_peers": len(active_devices)}
+
+
+def _ensure_wg_forwarding(wan_iface: str):
+    """Ensures ip_forward, FORWARD (above Oracle Cloud REJECT), TCPMSS, and MASQUERADE are active."""
+    try:
+        subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        rules = [
+            (["iptables", "-C", "FORWARD", "-i", "wg0", "-j", "ACCEPT"], ["iptables", "-I", "FORWARD", "1", "-i", "wg0", "-j", "ACCEPT"]),
+            (["iptables", "-C", "FORWARD", "-o", "wg0", "-j", "ACCEPT"], ["iptables", "-I", "FORWARD", "1", "-o", "wg0", "-j", "ACCEPT"]),
+            (["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", "10.8.0.0/16", "-o", wan_iface, "-j", "MASQUERADE"], ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.8.0.0/16", "-o", wan_iface, "-j", "MASQUERADE"]),
+        ]
+        for check_cmd, add_cmd in rules:
+            if subprocess.run(check_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3).returncode != 0:
+                subprocess.run(add_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+    except Exception as e:
+        logger.warning(f"Could not ensure WG forwarding rules: {e}")
 
 
 def _sync_free_dns_nat(active_devices):

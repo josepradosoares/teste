@@ -129,6 +129,7 @@ iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
 iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
 
 # 2. Instalar e habilitar o serviço systemd de persistência do firewall
 cat << 'EOF' > /etc/systemd/system/netshield-firewall.service
@@ -143,6 +144,7 @@ ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
 RemainAfterExit=yes
 
 [Install]
