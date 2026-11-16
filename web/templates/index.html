@@ -316,6 +316,14 @@
             <input type="email" id="settingContact" name="admin_contact" class="form-input" value="{{ settings.get('admin_contact', 'suporte@empresa.local') }}" required>
           </div>
 
+          <div class="form-group">
+            <label class="form-label" for="settingTunnelMode">Modo de Túnel WireGuard (Velocidade &amp; Streaming)</label>
+            <select id="settingTunnelMode" name="wg_tunnel_mode" class="form-select">
+              <option value="full" {{ 'selected' if settings.get('wg_tunnel_mode', 'full') == 'full' else '' }}>Full VPN (Todo tráfego pelo servidor com BBR)</option>
+              <option value="dns_only" {{ 'selected' if settings.get('wg_tunnel_mode', 'full') == 'dns_only' else '' }}>DNS-Only / Split-Tunnel (Só DNS na VPN — Vídeo 4K direto e sem bloqueio de IP)</option>
+            </select>
+          </div>
+
           <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
             <button type="submit" class="btn btn-primary">
               <span>💾</span> Salvar Configurações

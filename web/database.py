@@ -144,7 +144,8 @@ def init_db():
         ("enable_logging", "1"),
         ("session_secret", secrets.token_hex(32)),
         ("wg_endpoint_port", "51820"),
-        ("wg_server_pubkey", "")
+        ("wg_server_pubkey", ""),
+        ("wg_tunnel_mode", "full")
     ]
     for key, value in default_settings:
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?);", (key, value))

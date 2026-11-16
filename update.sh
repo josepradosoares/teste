@@ -42,20 +42,24 @@ rm -f /etc/nginx/sites-enabled/default
 
 echo -e "\n${CYAN}[3/7] Configurando dnsmasq para responder requisições externas...${NC}"
 cat << 'EOF' > /etc/dnsmasq.conf
-# NetShield DNS - Configuração de Alta Disponibilidade
+# NetShield DNS - Configuração de Alta Disponibilidade e Baixa Latência
 port=53
 no-resolv
 no-poll
+all-servers
 server=1.1.1.1
+server=1.0.0.1
 server=8.8.8.8
 cache-size=10000
+min-cache-ttl=300
+dns-forward-max=1024
 domain-needed
 bogus-priv
 log-queries
 log-facility=/var/log/dnsmasq.log
 conf-file=/etc/dnsmasq.d/netshield_blocked.conf
 
-# Permitir respostas a qualquer interface
+# Permitir respostas a qualquer interface (incluindo wg0 10.8.0.1)
 bind-dynamic
 EOF
 
@@ -118,6 +122,9 @@ echo -e "\n${CYAN}[5/7] Configurando Fuso Horário (São Paulo - Brasil)...${NC}
 timedatectl set-timezone America/Sao_Paulo || true
 echo -e "${GREEN}✓ Fuso horário configurado para $(timedatectl | grep "Time zone" || date)${NC}"
 
+echo -e "\n${CYAN}[5.5/7] Otimizando Kernel & Rede (Google BBR + Streaming 4K)...${NC}"
+bash "${REPO_DIR}/scripts/optimize_network.sh"
+
 echo -e "\n${CYAN}[6/7] Habilitando e iniciando todos os serviços essenciais...${NC}"
 cp "${REPO_DIR}/config/netshield.service" /etc/systemd/system/netshield.service
 systemctl daemon-reload
@@ -125,6 +132,7 @@ systemctl enable netshield.service dnsmasq nginx
 systemctl restart dnsmasq
 systemctl restart netshield.service
 systemctl restart nginx
+/opt/netshield/venv/bin/python -c "import sys; sys.path.append('/opt/netshield/web'); import wg_manager; wg_manager.sync_wireguard_peers()" 2>/dev/null || true
 
 # Aguardar 2 segundos para o FastAPI iniciar na porta 8080
 sleep 2

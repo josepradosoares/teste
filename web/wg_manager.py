@@ -59,17 +59,21 @@ def build_client_config(device: Dict[str, Any]) -> str:
     settings = db.get_settings()
     server_ip = settings.get("server_ip", "152.67.44.54").strip()
     wg_port = settings.get("wg_endpoint_port", "51820").strip() or "51820"
+    tunnel_mode = settings.get("wg_tunnel_mode", "full").strip()
     server_pubkey = get_server_public_key()
+
+    allowed_ips = "10.8.0.1/32" if tunnel_mode == "dns_only" else "0.0.0.0/1, 128.0.0.0/1"
 
     return (
         f"[Interface]\n"
         f"PrivateKey = {device['wg_private_key']}\n"
         f"Address = {device['vpn_ip']}/24\n"
-        f"DNS = 10.8.0.1\n\n"
+        f"DNS = 10.8.0.1\n"
+        f"MTU = 1420\n\n"
         f"[Peer]\n"
         f"PublicKey = {server_pubkey}\n"
         f"Endpoint = {server_ip}:{wg_port}\n"
-        f"AllowedIPs = 0.0.0.0/1, 128.0.0.0/1\n"
+        f"AllowedIPs = {allowed_ips}\n"
         f"PersistentKeepalive = 25\n"
     )
 
@@ -116,9 +120,10 @@ def sync_wireguard_peers() -> Dict[str, Any]:
         "[Interface]",
         "Address = 10.8.0.1/24",
         f"ListenPort = {wg_port}",
+        "MTU = 1420",
         f"PrivateKey = {priv_key}",
-        f"PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE",
-        f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -j MASQUERADE",
+        f"PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE",
+        f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -j MASQUERADE",
         ""
     ]
 

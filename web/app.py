@@ -461,13 +461,16 @@ async def update_settings(
     server_ip: str = Form(...),
     upstream_dns: str = Form(...),
     block_message_default: str = Form(...),
-    admin_contact: str = Form(...)
+    admin_contact: str = Form(...),
+    wg_tunnel_mode: str = Form("full")
 ):
     require_admin(request)
+    mode = wg_tunnel_mode.strip() if wg_tunnel_mode.strip() in ["full", "dns_only"] else "full"
     db.update_setting("server_ip", server_ip.strip())
     db.update_setting("upstream_dns", upstream_dns.strip())
     db.update_setting("block_message_default", block_message_default.strip())
     db.update_setting("admin_contact", admin_contact.strip())
+    db.update_setting("wg_tunnel_mode", mode)
 
     dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "message": "Configurações atualizadas com sucesso."}
