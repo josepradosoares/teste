@@ -33,6 +33,27 @@ SAFESEARCH_RULES = [
     ""
 ]
 
+# Bloqueio silencioso de anúncios do YouTube (somente Plano Pago / Completo).
+# Respondidos com endereço nulo (0.0.0.0 / ::) independentemente do block_mode,
+# para nunca exibir tela de bloqueio nem aviso. dnsmasq aplica a regra também a
+# todos os subdomínios. NÃO incluir hosts necessários para a reprodução
+# (youtube.com, s.youtube.com, youtubei.googleapis.com, googlevideo.com, ytimg.com,
+# jnn-pa.googleapis.com, imasdk.googleapis.com...), pois quebrariam vídeos/apps.
+YOUTUBE_AD_DOMAINS = [
+    "doubleclick.net",            # googleads.g / pubads.g / securepubads.g / ad / static
+    "googleadservices.com",
+    "googlesyndication.com",      # pagead2 / tpc
+    "googletagservices.com",
+    "adservice.google.com",
+    "adservice.google.com.br",
+    "ads.youtube.com",
+]
+
+
+def _youtube_adblock_enabled(settings: Dict[str, str]) -> bool:
+    return str(settings.get("youtube_adblock", "1")).strip() == "1"
+
+
 def _atomic_write_text(target_path: str, content: str):
     abs_path = os.path.abspath(target_path)
     conf_dir = os.path.dirname(abs_path)
@@ -124,6 +145,10 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
 
         active_count = 0
         free_count = 0
+        paid_domains = set()
+        youtube_adblock = _youtube_adblock_enabled(settings)
+        youtube_ad_set = set(YOUTUBE_AD_DOMAINS) if youtube_adblock else set()
+
         for item in blocked_domains:
             if item.get("enabled", 1) == 1:
                 try:
@@ -131,12 +156,27 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
                 except ValueError:
                     logger.warning(f"Skipping invalid blocked domain in DB: {item.get('domain')!r}")
                     continue
-                rule = f"address=/{dom}/{target_ip}"
-                paid_lines.append(rule)
-                active_count += 1
+
+                # Se o bloqueio de anúncios do YouTube estiver ativo, domínios de anúncios
+                # de vídeo não devem receber o IP do sinkhole (tela de bloqueio), e sim 0.0.0.0/::
+                if dom not in youtube_ad_set:
+                    rule = f"address=/{dom}/{target_ip}"
+                    paid_lines.append(rule)
+                    paid_domains.add(dom)
+                    active_count += 1
+
                 if item.get("free_included", 0) == 1:
-                    free_lines.append(rule)
+                    free_lines.append(f"address=/{dom}/{target_ip}")
                     free_count += 1
+
+        if youtube_adblock:
+            paid_lines.append("")
+            paid_lines.append("# Bloqueio silencioso de anúncios do YouTube (Plano Pago) - sem tela de bloqueio")
+            for dom in YOUTUBE_AD_DOMAINS:
+                paid_lines.append(f"address=/{dom}/0.0.0.0")
+                paid_lines.append(f"address=/{dom}/::")
+                if dom not in paid_domains:
+                    active_count += 1
 
         paid_content = "\n".join(paid_lines) + "\n"
         free_content = "\n".join(free_lines) + "\n"
@@ -155,6 +195,7 @@ def sync_dnsmasq_blocklist() -> Dict[str, Any]:
             "free_rules": free_count,
             "sinkhole_ip": target_ip,
             "block_mode": block_mode,
+            "youtube_adblock": youtube_adblock,
             "dnsmasq_reloaded": reload_status
         }
 

@@ -679,7 +679,8 @@ def update_settings(
     admin_contact: str = Form(..., max_length=120),
     wg_tunnel_mode: str = Form("full"),
     block_mode: str = Form("sinkhole"),
-    admin_hosts: str = Form("", max_length=500)
+    admin_hosts: str = Form("", max_length=500),
+    youtube_adblock: Optional[str] = Form(None, max_length=8)
 ):
     require_admin(request)
     mode = wg_tunnel_mode.strip() if wg_tunnel_mode.strip() in ["full", "dns_only"] else "full"
@@ -691,6 +692,9 @@ def update_settings(
     db.update_setting("wg_tunnel_mode", mode)
     db.update_setting("block_mode", b_mode)
     db.update_setting("admin_hosts", admin_hosts.strip())
+    # Ausente ou inválido => mantém o valor atual
+    if youtube_adblock is not None and youtube_adblock.strip() in ("0", "1"):
+        db.update_setting("youtube_adblock", youtube_adblock.strip())
 
     dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "message": "Configurações atualizadas com sucesso."}

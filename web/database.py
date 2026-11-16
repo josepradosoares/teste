@@ -198,6 +198,7 @@ def init_db():
         ("wg_server_pubkey", ""),
         ("wg_tunnel_mode", "full"),
         ("block_mode", "sinkhole"),
+        ("youtube_adblock", "1"),
         ("admin_hosts", "")
     ]
     for key, value in default_settings:
@@ -268,13 +269,20 @@ def init_db():
         "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
         (
             "Plano Completo",
-            "Proteção total (Adulto, Apostas, Malware, Anúncios, Redes Sociais e P2P/Jogos) para até 5 dispositivos VPN + Roteador (152.67.44.54) vinculado.",
+            "Proteção total (Adulto, Apostas, Malware, Anúncios, Bloqueio silencioso de Anúncios no YouTube, Redes Sociais e P2P/Jogos) para até 5 dispositivos VPN + Roteador vinculado.",
             15.0,
             30,
             5,
             now
         )
     )
+
+    # Atualiza a descrição do Plano Completo existente para refletir o bloqueio de anúncios do YouTube
+    cursor.execute("""
+        UPDATE plans
+        SET description = 'Proteção total (Adulto, Apostas, Malware, Anúncios, Bloqueio silencioso de Anúncios no YouTube, Redes Sociais e P2P/Jogos) para até 5 dispositivos VPN + Roteador vinculado.'
+        WHERE name = 'Plano Completo' AND description NOT LIKE '%YouTube%';
+    """)
 
     # Safely retire legacy default plans if they have no clients attached
     cursor.execute("""

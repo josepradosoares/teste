@@ -333,6 +333,14 @@
             </select>
           </div>
 
+          <div class="form-group">
+            <label class="form-label" for="settingYoutubeAdblock">Bloqueio de Anúncios do YouTube (Plano Pago)</label>
+            <select id="settingYoutubeAdblock" name="youtube_adblock" class="form-select">
+              <option value="1" {{ 'selected' if settings.get('youtube_adblock', '1') == '1' else '' }}>Ativado (bloqueio silencioso via DNS, sem tela/mensagem)</option>
+              <option value="0" {{ 'selected' if settings.get('youtube_adblock', '1') == '0' else '' }}>Desativado</option>
+            </select>
+          </div>
+
           <div class="form-group" style="grid-column: 1 / -1;">
             <label class="form-label" for="settingAdminHosts">Hosts do Painel Admin (separados por vírgula; vazio = padrão .duckdns.org / .ddns.net)</label>
             <input type="text" id="settingAdminHosts" name="admin_hosts" class="form-input font-mono" value="{{ settings.get('admin_hosts', '') }}" placeholder="ex: painel.meudominio.com, admin.exemplo.com">
