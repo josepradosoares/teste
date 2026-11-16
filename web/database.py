@@ -5,14 +5,30 @@ import hmac
 import ipaddress
 import secrets
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
+
+from validators import clean_label, sanitize_existing_label, normalize_domain, clean_text
 
 DEFAULT_DB = "/opt/netshield/data/netshield.db" if os.path.isdir("/opt/netshield/data") else os.path.join(os.path.dirname(__file__), "netshield.db")
 DB_PATH = os.environ.get("NETSHIELD_DB_PATH", DEFAULT_DB)
 
+
+class DeviceLimitError(Exception):
+    pass
+
+
+class PlanHasClientsError(Exception):
+    pass
+
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
@@ -98,9 +114,19 @@ def init_db():
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'client',
         is_active INTEGER DEFAULT 1,
+        must_change_password INTEGER DEFAULT 0,
+        session_version INTEGER DEFAULT 1,
         created_at TEXT NOT NULL
     );
     """)
+
+    # Safe migrations for existing users table
+    cursor.execute("PRAGMA table_info(users);")
+    user_cols = {row[1] for row in cursor.fetchall()}
+    if "must_change_password" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0;")
+    if "session_version" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN session_version INTEGER DEFAULT 1;")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS plans (
@@ -171,7 +197,8 @@ def init_db():
         ("wg_endpoint_port", "51820"),
         ("wg_server_pubkey", ""),
         ("wg_tunnel_mode", "full"),
-        ("block_mode", "sinkhole")
+        ("block_mode", "sinkhole"),
+        ("admin_hosts", "")
     ]
     for key, value in default_settings:
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?);", (key, value))
@@ -181,10 +208,47 @@ def init_db():
     # Seed default Admin user if no admin exists
     cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin';")
     if cursor.fetchone()[0] == 0:
+        env_pw = os.environ.get("NETSHIELD_ADMIN_PASSWORD", "").strip()
+        if not env_pw:
+            env_pw = secrets.token_urlsafe(12)
+            pw_dir = os.path.dirname(os.path.abspath(DB_PATH))
+            if pw_dir:
+                os.makedirs(pw_dir, exist_ok=True)
+            pw_file = os.path.join(pw_dir, "admin_initial_password.txt")
+            with open(pw_file, "w", encoding="utf-8") as f:
+                f.write(env_pw + "\n")
+            try:
+                os.chmod(pw_file, 0o600)
+            except Exception:
+                pass
+        must_change = 1 if env_pw == "admin123" else 0
         cursor.execute(
-            "INSERT INTO users (username, email, password_hash, role, is_active, created_at) VALUES (?, ?, ?, 'admin', 1, ?);",
-            ("admin", "admin@netshield.local", hash_password("admin123"), now)
+            "INSERT INTO users (username, email, password_hash, role, is_active, must_change_password, session_version, created_at) VALUES (?, ?, ?, 'admin', 1, ?, 1, ?);",
+            ("admin", "admin@netshield.local", hash_password(env_pw), must_change, now)
         )
+    else:
+        # Force password change if an existing admin still uses the legacy default 'admin123'
+        cursor.execute("SELECT id, password_hash FROM users WHERE role = 'admin';")
+        for admin_row in cursor.fetchall():
+            if verify_password("admin123", admin_row["password_hash"]):
+                cursor.execute("UPDATE users SET must_change_password = 1 WHERE id = ?;", (admin_row["id"],))
+
+    # One-time cleanup of legacy client/device names containing control or invalid characters
+    cursor.execute("SELECT id, name FROM clients;")
+    for row in cursor.fetchall():
+        try:
+            clean_label(row["name"], "Nome")
+        except ValueError:
+            cleaned = sanitize_existing_label(row["name"], fallback=f"Cliente {row['id']}")
+            cursor.execute("UPDATE clients SET name = ? WHERE id = ?;", (cleaned, row["id"]))
+
+    cursor.execute("SELECT id, name FROM devices;")
+    for row in cursor.fetchall():
+        try:
+            clean_label(row["name"], "Dispositivo")
+        except ValueError:
+            cleaned = sanitize_existing_label(row["name"], fallback=f"Dispositivo {row['id']}")
+            cursor.execute("UPDATE devices SET name = ? WHERE id = ?;", (cleaned, row["id"]))
 
     # Ensure Plano Free exists (available for free self-service registration)
     cursor.execute(
@@ -260,7 +324,10 @@ def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, username, email, role, is_active, created_at FROM users WHERE id = ? LIMIT 1;", (user_id,))
+    cursor.execute(
+        "SELECT id, username, email, role, is_active, COALESCE(must_change_password, 0) as must_change_password, COALESCE(session_version, 1) as session_version, created_at FROM users WHERE id = ? LIMIT 1;",
+        (user_id,)
+    )
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
@@ -268,7 +335,10 @@ def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 def update_user_password(user_id: int, new_password: str) -> bool:
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?;", (hash_password(new_password), user_id))
+    cursor.execute(
+        "UPDATE users SET password_hash = ?, must_change_password = 0, session_version = COALESCE(session_version, 1) + 1 WHERE id = ?;",
+        (hash_password(new_password), user_id)
+    )
     ok = cursor.rowcount > 0
     conn.commit()
     conn.close()
@@ -345,6 +415,10 @@ def toggle_plan(plan_id: int) -> Optional[int]:
 def delete_plan(plan_id: int) -> bool:
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM clients WHERE plan_id = ?;", (plan_id,))
+    if cursor.fetchone()[0] > 0:
+        conn.close()
+        raise PlanHasClientsError("Não é possível excluir um plano com clientes vinculados. Desative o plano em vez de excluir.")
     cursor.execute("DELETE FROM plans WHERE id = ?;", (plan_id,))
     ok = cursor.rowcount > 0
     conn.commit()
@@ -354,12 +428,18 @@ def delete_plan(plan_id: int) -> bool:
 # ==================== CLIENTS & DEVICES ====================
 
 def refresh_expired_clients() -> int:
-    """Marks clients past expires_at as EXPIRED."""
+    """Marks paid clients past expires_at as EXPIRED. Free plan (price = 0) never expires."""
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute(
-        "UPDATE clients SET status = 'EXPIRED' WHERE status = 'ACTIVE' AND expires_at < ?;",
+        """
+        UPDATE clients
+        SET status = 'EXPIRED'
+        WHERE status = 'ACTIVE'
+          AND expires_at < ?
+          AND COALESCE((SELECT p.price FROM plans p WHERE p.id = clients.plan_id), 0) > 0;
+        """,
         (now,)
     )
     changed = cursor.rowcount
@@ -500,7 +580,7 @@ def update_client(
             cursor.execute("UPDATE users SET email = ? WHERE id = ?;", (email.strip(), user_id))
             if new_password and len(new_password.strip()) >= 6:
                 cursor.execute(
-                    "UPDATE users SET password_hash = ? WHERE id = ?;",
+                    "UPDATE users SET password_hash = ?, session_version = COALESCE(session_version, 1) + 1 WHERE id = ?;",
                     (hash_password(new_password.strip()), user_id)
                 )
         conn.commit()
@@ -699,6 +779,59 @@ def add_device(client_id: int, name: str, vpn_ip: str, wg_public_key: str, wg_pr
     conn.close()
     return device_id
 
+def allocate_device(
+    client_id: int,
+    name: str,
+    wg_public_key: str,
+    wg_private_key: str,
+    max_devices: int
+) -> Tuple[int, str]:
+    """Atomically checks device limit, picks next free VPN IP, and inserts the device using BEGIN IMMEDIATE."""
+    clean_name = clean_label(name, "Nome do dispositivo")
+    conn = get_db()
+    conn.isolation_level = None
+    cursor = conn.cursor()
+    try:
+        cursor.execute("BEGIN IMMEDIATE;")
+        cursor.execute("SELECT COUNT(*) FROM devices WHERE client_id = ?;", (client_id,))
+        existing_count = cursor.fetchone()[0]
+        if existing_count >= max_devices:
+            conn.rollback()
+            raise DeviceLimitError(f"Limite de {max_devices} dispositivo(s) do plano atingido.")
+
+        cursor.execute("SELECT vpn_ip FROM devices;")
+        used = {row["vpn_ip"] for row in cursor.fetchall()}
+        vpn_ip = None
+        for third in range(0, 255):
+            start_fourth = 2 if third == 0 else 1
+            for fourth in range(start_fourth, 255):
+                candidate = f"10.8.{third}.{fourth}"
+                if candidate not in used:
+                    vpn_ip = candidate
+                    break
+            if vpn_ip:
+                break
+        if not vpn_ip:
+            conn.rollback()
+            raise RuntimeError("No available VPN IP addresses in 10.8.0.0/16")
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT INTO devices (client_id, name, vpn_ip, wg_public_key, wg_private_key, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
+            (client_id, clean_name, vpn_ip, wg_public_key, wg_private_key, now)
+        )
+        device_id = cursor.lastrowid
+        conn.commit()
+        return device_id, vpn_ip
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
 def delete_device(device_id: int) -> bool:
     conn = get_db()
     cursor = conn.cursor()
@@ -709,9 +842,10 @@ def delete_device(device_id: int) -> bool:
     return ok
 
 def rename_device(device_id: int, name: str) -> bool:
+    clean_name = clean_label(name, "Nome do dispositivo")
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("UPDATE devices SET name = ? WHERE id = ?;", (name.strip(), device_id))
+    cursor.execute("UPDATE devices SET name = ? WHERE id = ?;", (clean_name, device_id))
     ok = cursor.rowcount > 0
     conn.commit()
     conn.close()
@@ -772,16 +906,19 @@ def get_blocked_domain_info(domain: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 def add_blocked_domain(domain: str, reason: str, category: str = "Geral", free_included: int = 0) -> bool:
-    clean_domain = domain.strip().lower()
-    if not clean_domain:
+    try:
+        clean_domain = normalize_domain(domain)
+    except ValueError:
         return False
+    clean_reason = clean_text(reason, 500) or "Bloqueio administrativo"
+    clean_category = clean_text(category, 60) or "Geral"
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         cursor.execute(
             "INSERT INTO blocked_domains (domain, reason, category, enabled, free_included, hits, created_at) VALUES (?, ?, ?, 1, ?, 0, ?);",
-            (clean_domain, reason.strip() or "Bloqueio administrativo", category.strip() or "Geral", 1 if free_included else 0, now)
+            (clean_domain, clean_reason, clean_category, 1 if free_included else 0, now)
         )
         conn.commit()
         success = True
@@ -792,20 +929,18 @@ def add_blocked_domain(domain: str, reason: str, category: str = "Geral", free_i
     return success
 
 def update_blocked_domain(domain_id: int, domain: str, category: str, reason: str, free_included: int = 0) -> bool:
-    clean_domain = domain.strip().lower()
-    if clean_domain.startswith("http://"):
-        clean_domain = clean_domain[7:]
-    if clean_domain.startswith("https://"):
-        clean_domain = clean_domain[8:]
-    clean_domain = clean_domain.split("/")[0].split(":")[0]
-    if not clean_domain or "." not in clean_domain:
+    try:
+        clean_domain = normalize_domain(domain)
+    except ValueError:
         return False
+    clean_reason = clean_text(reason, 500) or "Acesso bloqueado pelo administrador."
+    clean_category = clean_text(category, 60) or "Geral"
     conn = get_db()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "UPDATE blocked_domains SET domain = ?, category = ?, reason = ?, free_included = ? WHERE id = ?;",
-            (clean_domain, category.strip(), reason.strip(), 1 if free_included else 0, domain_id)
+            (clean_domain, clean_category, clean_reason, 1 if free_included else 0, domain_id)
         )
         ok = cursor.rowcount > 0
         conn.commit()
@@ -861,6 +996,14 @@ def increment_hits(domain: str):
 
 # ==================== QUERY LOGS & STATS ====================
 
+def get_enabled_blocked_domains_set() -> set:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT LOWER(domain) as d FROM blocked_domains WHERE enabled = 1;")
+    res = {row["d"] for row in cursor.fetchall()}
+    conn.close()
+    return res
+
 def log_query(client_ip: str, domain: str, status: str, query_type: str = "A"):
     conn = get_db()
     cursor = conn.cursor()
@@ -868,6 +1011,21 @@ def log_query(client_ip: str, domain: str, status: str, query_type: str = "A"):
     cursor.execute(
         "INSERT INTO query_logs (client_ip, domain, query_type, status, timestamp) VALUES (?, ?, ?, ?, ?);",
         (client_ip, domain.strip().lower(), query_type, status.upper(), now)
+    )
+    conn.commit()
+    conn.close()
+
+def log_queries_batch(entries: List[tuple]):
+    """Batch-inserts (client_ip, domain, query_type, status) tuples in a single transaction."""
+    if not entries:
+        return
+    conn = get_db()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows = [(ip, dom.strip().lower(), qtype, st.upper(), now) for ip, dom, qtype, st in entries]
+    cursor.executemany(
+        "INSERT INTO query_logs (client_ip, domain, query_type, status, timestamp) VALUES (?, ?, ?, ?, ?);",
+        rows
     )
     conn.commit()
     conn.close()
@@ -962,12 +1120,14 @@ def get_stats() -> Dict[str, Any]:
 # ==================== UNBLOCK REQUESTS ====================
 
 def create_unblock_request(domain: str, client_ip: str, reason: str) -> bool:
+    clean_domain = normalize_domain(domain)
+    clean_reason = clean_text(reason, 500)
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute(
         "INSERT INTO unblock_requests (domain, client_ip, reason, status, created_at) VALUES (?, ?, ?, 'PENDING', ?);",
-        (domain.strip().lower(), client_ip, reason.strip(), now)
+        (clean_domain, client_ip, clean_reason, now)
     )
     conn.commit()
     conn.close()

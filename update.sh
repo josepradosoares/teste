@@ -36,7 +36,8 @@ echo -e "${GREEN}✓ IP do Servidor configurado: ${SERVER_IP}${NC}"
 
 echo -e "\n${CYAN}[2/7] Atualizando arquivos da aplicação a partir do repositório...${NC}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mkdir -p /opt/netshield/web /opt/netshield/data /opt/netshield/ssl /etc/dnsmasq.d /var/www/certbot
+mkdir -p /opt/netshield/web /opt/netshield/data /opt/netshield/ssl /etc/dnsmasq.d /etc/netshield/dnsmasq-free.d /var/www/certbot
+rm -f /etc/dnsmasq.d/netshield_free_blocked.conf
 cp -r "${REPO_DIR}/web/"* /opt/netshield/web/
 /opt/netshield/venv/bin/pip install -q -r /opt/netshield/web/requirements.txt
 cp "${REPO_DIR}/config/nginx_blockpage.conf" /etc/nginx/sites-available/netshield.conf
@@ -50,9 +51,7 @@ port=53
 no-resolv
 no-poll
 all-servers
-server=1.1.1.1
-server=1.0.0.1
-server=8.8.8.8
+conf-file=/etc/netshield/dnsmasq-upstream.conf
 cache-size=10000
 min-cache-ttl=300
 neg-ttl=300
@@ -76,9 +75,7 @@ bind-dynamic
 no-resolv
 no-poll
 all-servers
-server=1.1.1.1
-server=1.0.0.1
-server=8.8.8.8
+conf-file=/etc/netshield/dnsmasq-upstream.conf
 cache-size=5000
 min-cache-ttl=300
 neg-ttl=300
@@ -88,7 +85,7 @@ bogus-priv
 log-queries
 log-async=50
 log-facility=/var/log/dnsmasq.log
-conf-file=/etc/dnsmasq.d/netshield_free_blocked.conf
+conf-file=/etc/netshield/dnsmasq-free.d/netshield_free_blocked.conf
 EOF
 
 cat << 'EOF' > /etc/systemd/system/netshield-dns-free.service
@@ -118,7 +115,8 @@ systemctl restart systemd-resolved 2>/dev/null || true
 echo -e "\n${CYAN}[4/7] Sincronizando banco de dados e regras de bloqueio...${NC}"
 export NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db
 export NETSHIELD_DNSMASQ_CONF=/etc/dnsmasq.d/netshield_blocked.conf
-export NETSHIELD_DNSMASQ_FREE_CONF=/etc/dnsmasq.d/netshield_free_blocked.conf
+export NETSHIELD_DNSMASQ_FREE_CONF=/etc/netshield/dnsmasq-free.d/netshield_free_blocked.conf
+export NETSHIELD_DNSMASQ_UPSTREAM_CONF=/etc/netshield/dnsmasq-upstream.conf
 export NETSHIELD_LOG_PATH=/var/log/dnsmasq.log
 
 /opt/netshield/venv/bin/python -c "
@@ -130,11 +128,13 @@ dns_manager.sync_dnsmasq_blocklist()
 "
 
 echo -e "\n${CYAN}[5/7] Configurando Firewall Permanente (Sobrevive a qualquer Reboot)...${NC}"
-# 1. Aplicar imediatamente no iptables
+# 1. Aplicar imediatamente no iptables (DNS endurecido: bloqueia consultas ANY + rate-limit 30/s burst 60)
 iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-iptables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true
-iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
+iptables -I INPUT 1 -p udp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true
+iptables -I INPUT 2 -p tcp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true
+iptables -I INPUT 3 -p udp --dport 53 -m hashlimit --hashlimit-above 30/sec --hashlimit-burst 60 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true
+iptables -I INPUT 4 -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
@@ -143,43 +143,17 @@ iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
 # Regras IPv6 equivalentes (best effort caso IPv6 esteja ativo no kernel)
 ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
 ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-ip6tables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns6_rl -j DROP 2>/dev/null || true
-ip6tables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || ip6tables -I INPUT 1 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p udp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true
+ip6tables -I INPUT 2 -p tcp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true
+ip6tables -I INPUT 3 -p udp --dport 53 -m hashlimit --hashlimit-above 30/sec --hashlimit-burst 60 --hashlimit-mode srcip --hashlimit-name netshield_dns6_rl -j DROP 2>/dev/null || true
+ip6tables -I INPUT 4 -p udp --dport 53 -j ACCEPT 2>/dev/null || ip6tables -I INPUT 1 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
 ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
 ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true
 ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true
 ip6tables -I INPUT 1 -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
 
 # 2. Instalar e habilitar o serviço systemd de persistência do firewall
-cat << 'EOF' > /etc/systemd/system/netshield-firewall.service
-[Unit]
-Description=NetShield Permanent Firewall Rules for Oracle Cloud
-DefaultDependencies=no
-Before=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-ExecStart=/bin/sh -c '/sbin/iptables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true'
-ExecStart=/sbin/iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns6_rl -j DROP 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true'
-ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p udp --dport 51820 -j ACCEPT 2>/dev/null || true'
-RemainAfterExit=yes
-
-[Install]
-WantedBy=basic.target
-EOF
+cp "${REPO_DIR}/config/netshield-firewall.service" /etc/systemd/system/netshield-firewall.service
 
 systemctl daemon-reload
 systemctl enable netshield-firewall.service

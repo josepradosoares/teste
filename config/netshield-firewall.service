@@ -1,5 +1,6 @@
 [Unit]
 Description=NetShield Permanent Firewall Rules for Oracle Cloud
+DefaultDependencies=no
 Before=network-pre.target
 Wants=network-pre.target
 
@@ -7,8 +8,24 @@ Wants=network-pre.target
 Type=oneshot
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
+ExecStart=/bin/sh -c '/sbin/iptables -I INPUT 1 -p udp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/iptables -I INPUT 2 -p tcp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/iptables -I INPUT 3 -p udp --dport 53 -m hashlimit --hashlimit-above 30/sec --hashlimit-burst 60 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true'
+ExecStart=/sbin/iptables -I INPUT 4 -p udp --dport 53 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
+ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
+ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
+ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p udp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 2 -p tcp --dport 53 -m string --algo bm --hex-string "|0000ff0001|" -j DROP 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 3 -p udp --dport 53 -m hashlimit --hashlimit-above 30/sec --hashlimit-burst 60 --hashlimit-mode srcip --hashlimit-name netshield_dns6_rl -j DROP 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 4 -p udp --dport 53 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p udp --dport 51820 -j ACCEPT 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

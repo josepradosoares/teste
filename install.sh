@@ -102,10 +102,13 @@ touch /var/log/dnsmasq.log
 chmod 644 /var/log/dnsmasq.log
 touch /etc/dnsmasq.d/netshield_blocked.conf
 
-# Inicializar o banco de dados com o IP correto do servidor
+# Inicializar o banco de dados com o IP correto do servidor e senha admin aleatória
 export NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db
 export NETSHIELD_DNSMASQ_CONF=/etc/dnsmasq.d/netshield_blocked.conf
+export NETSHIELD_DNSMASQ_FREE_CONF=/etc/netshield/dnsmasq-free.d/netshield_free_blocked.conf
+export NETSHIELD_DNSMASQ_UPSTREAM_CONF=/etc/netshield/dnsmasq-upstream.conf
 export NETSHIELD_LOG_PATH=/var/log/dnsmasq.log
+export NETSHIELD_ADMIN_PASSWORD="${NETSHIELD_ADMIN_PASSWORD:-$(openssl rand -base64 16 | tr -dc 'A-Za-z0-9' | head -c 16)}"
 
 /opt/netshield/venv/bin/python -c "
 import sys
@@ -117,49 +120,9 @@ db.update_setting('server_ip', '${SERVER_IP}')
 dns_manager.sync_dnsmasq_blocklist()
 "
 
-systemctl restart dnsmasq
-systemctl enable dnsmasq
-
-# 8. Liberar Firewall interno no Linux (Portas 80, 443 e 53)
-echo -e "\n${CYAN}[8/9] Configurando regras de Firewall local (iptables)...${NC}"
-iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
-iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
-iptables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns_rl -j DROP 2>/dev/null || true
-iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p udp --dport 53 -j ACCEPT
-iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
-iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
-iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
-ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
-ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-ip6tables -I INPUT 1 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
-ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
-ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true
-ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true
-
-cat << 'EOF' > /etc/logrotate.d/netshield-dnsmasq
-/var/log/dnsmasq.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-}
-EOF
-# Tentar persistir regras se iptables-persistent estiver instalado
-if command -v netfilter-persistent >/dev/null 2>&1; then
-  netfilter-persistent save >/dev/null 2>&1 || true
-fi
-
-NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db /opt/netshield/venv/bin/python -c "import sys; sys.path.append('/opt/netshield/web'); import wg_manager; wg_manager.sync_router_dns_nat()" 2>/dev/null || true
-
-# 9. Instalar e iniciar o serviço systemd
-echo -e "\n${CYAN}[9/9] Criando e iniciando o serviço NetShield Web Panel...${NC}"
-cp "${SCRIPT_DIR}/config/netshield.service" /etc/systemd/system/netshield.service
-systemctl daemon-reload
-systemctl enable netshield.service
-systemctl restart netshield.service
+# Executar update.sh como fonte única para dnsmasq (Free + Pago), firewall endurecido e serviços
+echo -e "\n${CYAN}[8/8] Aplicando configurações finais via update.sh...${NC}"
+bash "${SCRIPT_DIR}/update.sh"
 
 echo -e "\n${GREEN}=================================================================="
 echo "    🎉 INSTALAÇÃO CONCLUÍDA COM SUCESSO!                          "
@@ -167,6 +130,8 @@ echo "==================================================================${NC}"
 echo -e "
 ${YELLOW}ACESSO AO PAINEL DE CONTROLE:${NC}
   👉 URL do Painel:  ${CYAN}http://${SERVER_IP}/admin${NC} (ou ${CYAN}http://${SERVER_IP}/?admin=1${NC})
+  👉 Usuário Admin:  ${CYAN}admin${NC}
+  👉 Senha Inicial:  ${CYAN}${NETSHIELD_ADMIN_PASSWORD}${NC}  ${RED}(anote agora — exibida apenas uma vez!)${NC}
   👉 IP do seu DNS:  ${CYAN}${SERVER_IP}${NC} (Porta 53 UDP/TCP)
 
 ${YELLOW}COMO USAR NO SEU COMPUTADOR OU ROTEADOR:${NC}

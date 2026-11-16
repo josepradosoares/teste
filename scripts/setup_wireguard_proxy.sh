@@ -90,13 +90,13 @@ WAN_INTERFACE=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $5}' | head -n
 echo -e "\n${CYAN}[5/6] Criando Configuração do Servidor WireGuard (/etc/wireguard/wg0.conf)...${NC}"
 cat << EOF > /etc/wireguard/wg0.conf
 [Interface]
-Address = 10.8.0.1/24
+Address = 10.8.0.1/16
 ListenPort = ${WG_PORT}
 PrivateKey = ${SERVER_PRIV_KEY}
 
 # Regras de NAT e DNS sinkhole para clientes da VPN
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -j MASQUERADE
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ${WAN_INTERFACE} -j MASQUERADE; iptables -t nat -D POSTROUTING -s 10.8.0.0/16 -j MASQUERADE
 
 [Peer]
 # Cliente Windows / Celular
@@ -131,7 +131,7 @@ mkdir -p /opt/netshield/clients
 cat << EOF > /opt/netshield/clients/cliente-jose.conf
 [Interface]
 PrivateKey = ${CLIENT_PRIV_KEY}
-Address = 10.8.0.2/24
+Address = 10.8.0.2/32
 DNS = 10.8.0.1
 
 [Peer]

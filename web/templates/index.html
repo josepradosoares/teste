@@ -333,6 +333,11 @@
             </select>
           </div>
 
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label" for="settingAdminHosts">Hosts do Painel Admin (separados por vírgula; vazio = padrão .duckdns.org / .ddns.net)</label>
+            <input type="text" id="settingAdminHosts" name="admin_hosts" class="form-input font-mono" value="{{ settings.get('admin_hosts', '') }}" placeholder="ex: painel.meudominio.com, admin.exemplo.com">
+          </div>
+
           <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
             <button type="submit" class="btn btn-primary">
               <span>💾</span> Salvar Configurações
@@ -680,7 +685,35 @@
     </div>
   </div>
 
+  <!-- Modal: Force Admin Password Change -->
+  <div class="modal-overlay" id="forcePasswordModal" data-locked="true">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔐 Troca Obrigatória de Senha</h3>
+      </div>
+      <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 0.85rem;">
+        Sua conta administrativa ainda utiliza a senha padrão. Por segurança, defina uma nova senha antes de usar o painel.
+      </p>
+      <form id="forcePasswordForm" style="display: flex; flex-direction: column; gap: 0.9rem;">
+        <div class="form-group">
+          <label class="form-label" for="forceCurrentPassword">Senha Atual</label>
+          <input type="password" id="forceCurrentPassword" name="current_password" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="forceNewPassword">Nova Senha (mín. 6 caracteres)</label>
+          <input type="password" id="forceNewPassword" name="new_password" class="form-input" minlength="6" required>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Salvar Nova Senha e Continuar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
+  <script>
+    window.FORCE_PASSWORD_CHANGE = {{ 'true' if force_password_change else 'false' }};
+  </script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

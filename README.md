@@ -125,6 +125,17 @@ cd ~/netshield && git pull origin main && sudo bash update.sh
 
 ---
 
+## 🔐 Segurança
+
+* **Senha Inicial do Admin:** Na primeira instalação (`install.sh`), uma senha aleatória é gerada automaticamente e exibida **uma única vez** no resumo final (também salva em `/opt/netshield/data/admin_initial_password.txt` com permissão `600` quando gerada pelo `init_db` sem `NETSHIELD_ADMIN_PASSWORD`). Instalações antigas que ainda usem `admin123` são obrigadas a trocar a senha ao acessar o painel.
+* **Proteção contra Força Bruta e Abuso:**
+  * Login limitado a **5 tentativas/minuto por IP** (e bloqueio de 15 minutos após 10 falhas por usuário).
+  * Cadastro Free limitado a **3 contas/hora por IP** e solicitações de desbloqueio a **5/hora por IP** (além de `limit_req` no Nginx).
+  * Porta `53` endurecida contra amplificação de DNS (bloqueio de consultas `ANY` e `hashlimit` de `30/s` com burst `60` por IP de origem).
+* **Troca de Senha e Sessões:** Alterar a senha invalida automaticamente todas as sessões anteriores (`session_version`).
+
+---
+
 ## 🗑️ Como Desinstalar
 
 ```bash

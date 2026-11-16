@@ -95,12 +95,48 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#39;");
   }
 
+  const forcePasswordModal = document.getElementById("forcePasswordModal");
+  const forcePasswordForm = document.getElementById("forcePasswordForm");
+
+  function openForcePasswordModal() {
+    if (forcePasswordModal) forcePasswordModal.classList.add("active");
+  }
+
   function handleAuthError(res) {
     if (res.status === 401) {
       window.location.href = "/login";
       return true;
     }
+    if (res.status === 403) {
+      res.clone().json().then(d => {
+        if (d && d.must_change_password) openForcePasswordModal();
+      }).catch(() => {});
+      return true;
+    }
     return false;
+  }
+
+  if (window.FORCE_PASSWORD_CHANGE) {
+    openForcePasswordModal();
+  }
+
+  if (forcePasswordForm) {
+    forcePasswordForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const res = await fetch("/api/auth/change-password", { method: "POST", body: new FormData(forcePasswordForm) });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.detail || "Erro ao alterar senha.", "error");
+        return;
+      }
+      forcePasswordForm.reset();
+      if (forcePasswordModal) forcePasswordModal.classList.remove("active");
+      window.FORCE_PASSWORD_CHANGE = false;
+      showToast("Senha alterada com sucesso!");
+      loadStats();
+      loadQueryLogs();
+      populatePlanSelect();
+    });
   }
 
   // Tab Switching
@@ -571,9 +607,12 @@ document.addEventListener("DOMContentLoaded", () => {
       "Tem certeza que deseja remover este plano?",
       async () => {
         const res = await fetch(`/api/plans/${planId}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           showToast("Plano excluído.");
           loadPlans();
+        } else {
+          showToast(data.detail || "Não foi possível excluir o plano.", "error");
         }
       }
     );
@@ -818,11 +857,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const res = await fetch("/api/blocked-domains/bulk", { method: "POST", body: new FormData(bulkForm) });
     const data = await res.json();
     if (res.ok) {
-      showToast(`${data.added_count} de ${data.total_submitted} domínios importados!`);
+      let msg = `${data.added_count} de ${data.total_submitted} domínios importados!`;
+      if (data.rejected && data.rejected.length > 0) {
+        msg += ` Ignorados (${data.rejected.length}): ${data.rejected.slice(0, 3).join(", ")}`;
+        showToast(msg, "error");
+      } else {
+        showToast(msg);
+      }
       bulkModal.classList.remove("active");
       loadBlockedDomains();
       loadCategories();
       loadStats();
+    } else {
+      showToast(data.detail || "Erro ao importar domínios.", "error");
     }
   });
 
@@ -904,15 +951,19 @@ document.addEventListener("DOMContentLoaded", () => {
   updateLiveClock();
   setInterval(updateLiveClock, 1000);
 
-  // Close any open modal on backdrop click or Escape key
+  // Close any open modal on backdrop click or Escape key (unless locked)
   document.querySelectorAll(".modal-overlay").forEach(overlay => {
     overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) overlay.classList.remove("active");
+      if (e.target === overlay && overlay.getAttribute("data-locked") !== "true") {
+        overlay.classList.remove("active");
+      }
     });
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      document.querySelectorAll(".modal-overlay.active").forEach(m => m.classList.remove("active"));
+      document.querySelectorAll(".modal-overlay.active").forEach(m => {
+        if (m.getAttribute("data-locked") !== "true") m.classList.remove("active");
+      });
     }
   });
 
