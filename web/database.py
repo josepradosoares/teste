@@ -275,6 +275,22 @@ def create_plan(name: str, description: str, price: float, duration_days: int, m
         conn.close()
     return plan_id
 
+def update_plan(plan_id: int, name: str, description: str, price: float, duration_days: int, max_devices: int) -> bool:
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE plans SET name = ?, description = ?, price = ?, duration_days = ?, max_devices = ? WHERE id = ?;",
+            (name.strip(), description.strip(), float(price), int(duration_days), int(max_devices), plan_id)
+        )
+        ok = cursor.rowcount > 0
+        conn.commit()
+    except sqlite3.IntegrityError:
+        ok = False
+    finally:
+        conn.close()
+    return ok
+
 def toggle_plan(plan_id: int) -> Optional[int]:
     conn = get_db()
     cursor = conn.cursor()
@@ -408,6 +424,57 @@ def create_client(name: str, email: str, phone: str, plan_id: int, username: str
         conn.close()
     return client_id
 
+def update_client(
+    client_id: int,
+    name: str,
+    email: str,
+    phone: str,
+    plan_id: int,
+    status: str,
+    expires_at: str,
+    notes: str = "",
+    new_password: str = ""
+) -> bool:
+    if status not in ["ACTIVE", "SUSPENDED", "EXPIRED"]:
+        return False
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id FROM clients WHERE id = ?;", (client_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return False
+        user_id = row["user_id"]
+
+        norm_exp = expires_at.strip()
+        if len(norm_exp) == 10:
+            norm_exp = f"{norm_exp} 23:59:59"
+
+        cursor.execute(
+            """
+            UPDATE clients
+            SET name = ?, email = ?, phone = ?, plan_id = ?, status = ?, expires_at = ?, notes = ?
+            WHERE id = ?;
+            """,
+            (name.strip(), email.strip(), phone.strip(), int(plan_id), status, norm_exp, notes.strip(), client_id)
+        )
+        if user_id:
+            cursor.execute("UPDATE users SET email = ? WHERE id = ?;", (email.strip(), user_id))
+            if new_password and len(new_password.strip()) >= 6:
+                cursor.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?;",
+                    (hash_password(new_password.strip()), user_id)
+                )
+        conn.commit()
+        ok = True
+    except Exception:
+        conn.rollback()
+        ok = False
+    finally:
+        conn.close()
+    return ok
+
 def update_client_status(client_id: int, status: str) -> bool:
     if status not in ["ACTIVE", "SUSPENDED", "EXPIRED"]:
         return False
@@ -538,6 +605,15 @@ def delete_device(device_id: int) -> bool:
     conn.close()
     return ok
 
+def rename_device(device_id: int, name: str) -> bool:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE devices SET name = ? WHERE id = ?;", (name.strip(), device_id))
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
 # ==================== BLOCKED DOMAINS ====================
 
 def list_blocked_domains(search: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -611,6 +687,30 @@ def add_blocked_domain(domain: str, reason: str, category: str = "Geral") -> boo
     finally:
         conn.close()
     return success
+
+def update_blocked_domain(domain_id: int, domain: str, category: str, reason: str) -> bool:
+    clean_domain = domain.strip().lower()
+    if clean_domain.startswith("http://"):
+        clean_domain = clean_domain[7:]
+    if clean_domain.startswith("https://"):
+        clean_domain = clean_domain[8:]
+    clean_domain = clean_domain.split("/")[0].split(":")[0]
+    if not clean_domain or "." not in clean_domain:
+        return False
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE blocked_domains SET domain = ?, category = ?, reason = ? WHERE id = ?;",
+            (clean_domain, category.strip(), reason.strip(), domain_id)
+        )
+        ok = cursor.rowcount > 0
+        conn.commit()
+    except sqlite3.IntegrityError:
+        ok = False
+    finally:
+        conn.close()
+    return ok
 
 def toggle_blocked_domain(domain_id: int) -> Optional[int]:
     conn = get_db()

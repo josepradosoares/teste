@@ -384,6 +384,21 @@ async def add_domain(
     sync_result = dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "domain": clean_domain, "sync": sync_result}
 
+@app.put("/api/blocked-domains/{domain_id}")
+async def update_domain(
+    request: Request,
+    domain_id: int,
+    domain: str = Form(...),
+    category: str = Form("Geral"),
+    reason: str = Form("Acesso bloqueado pelo administrador.")
+):
+    require_admin(request)
+    ok = db.update_blocked_domain(domain_id=domain_id, domain=domain, category=category, reason=reason)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Domínio inválido, duplicado ou regra não encontrada.")
+    sync_result = dns_manager.sync_dnsmasq_blocklist()
+    return {"success": True, "sync": sync_result}
+
 @app.post("/api/blocked-domains/{domain_id}/toggle")
 async def toggle_domain(request: Request, domain_id: int):
     require_admin(request)
@@ -479,6 +494,21 @@ async def api_create_plan(
         raise HTTPException(status_code=409, detail="Já existe um plano com esse nome.")
     return {"success": True, "plan_id": plan_id}
 
+@app.put("/api/plans/{plan_id}")
+async def api_update_plan(
+    request: Request,
+    plan_id: int,
+    name: str = Form(...),
+    description: str = Form(""),
+    price: float = Form(...),
+    duration_days: int = Form(30),
+    max_devices: int = Form(2)
+):
+    require_admin(request)
+    if not db.update_plan(plan_id=plan_id, name=name, description=description, price=price, duration_days=duration_days, max_devices=max_devices):
+        raise HTTPException(status_code=400, detail="Erro ao atualizar plano ou nome já existente.")
+    return {"success": True}
+
 @app.post("/api/plans/{plan_id}/toggle")
 async def api_toggle_plan(request: Request, plan_id: int):
     require_admin(request)
@@ -541,6 +571,38 @@ async def api_create_client(
         wg_manager.sync_wireguard_peers()
 
     return {"success": True, "client_id": client_id, "device_id": device_id}
+
+@app.put("/api/clients/{client_id}")
+async def api_update_client(
+    request: Request,
+    client_id: int,
+    name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(""),
+    plan_id: int = Form(...),
+    status: str = Form("ACTIVE"),
+    expires_at: str = Form(...),
+    notes: str = Form(""),
+    new_password: str = Form("")
+):
+    require_admin(request)
+    if new_password and len(new_password.strip()) < 6:
+        raise HTTPException(status_code=400, detail="A nova senha deve ter pelo menos 6 caracteres.")
+    ok = db.update_client(
+        client_id=client_id,
+        name=name,
+        email=email,
+        phone=phone,
+        plan_id=plan_id,
+        status=status,
+        expires_at=expires_at,
+        notes=notes,
+        new_password=new_password
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="Não foi possível atualizar o cliente.")
+    sync_res = wg_manager.sync_wireguard_peers()
+    return {"success": True, "wg_sync": sync_res}
 
 @app.post("/api/clients/{client_id}/status")
 async def api_update_client_status(request: Request, client_id: int, status: str = Form(...)):
@@ -644,6 +706,21 @@ async def api_download_device_config(request: Request, device_id: int):
         content=config_text,
         headers={"Content-Disposition": f"attachment; filename=netshield_{safe_name}.conf"}
     )
+
+@app.put("/api/devices/{device_id}")
+async def api_rename_device(request: Request, device_id: int, name: str = Form(...)):
+    user = require_auth(request)
+    device = db.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
+    if user["role"] != "admin":
+        client = db.get_client_by_user_id(user["id"])
+        if not client or client["id"] != device["client_id"]:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="Informe o novo nome do dispositivo.")
+    db.rename_device(device_id, name)
+    return {"success": True}
 
 @app.delete("/api/devices/{device_id}")
 async def api_delete_device(request: Request, device_id: int):

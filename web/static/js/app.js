@@ -199,6 +199,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (handleAuthError(res) || !res.ok) return;
       const data = await res.json();
       const clients = data.clients || [];
+      window._cachedClients = clients;
       badgeClientCount.textContent = clients.length;
 
       if (clients.length === 0) {
@@ -231,6 +232,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <td>
               <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
                 <button class="btn btn-primary btn-sm" onclick="window.openClientDevices(${c.id}, '${escapeHtml(c.name)}')">📱 VPN / QR</button>
+                <button class="btn btn-secondary btn-sm" onclick="window.openEditClient(${c.id})" title="Editar cliente">✏️ Editar</button>
                 <button class="btn btn-secondary btn-sm" onclick="window.renewClient(${c.id})">+30d</button>
                 ${toggleAction}
                 <button class="btn btn-danger btn-sm" onclick="window.deleteClient(${c.id})" title="Excluir cliente">🗑️</button>
@@ -243,20 +245,57 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function populatePlanSelect() {
+  async function populatePlanSelect(targetEl = clientPlanSelect) {
     const res = await fetch("/api/plans");
     if (!res.ok) return;
     const data = await res.json();
     const plans = (data.plans || []).filter(p => p.is_active === 1);
     badgePlanCount.textContent = (data.plans || []).length;
-    clientPlanSelect.innerHTML = plans.map(p =>
+    targetEl.innerHTML = plans.map(p =>
       `<option value="${p.id}">${escapeHtml(p.name)} — R$ ${Number(p.price).toFixed(2)} (${p.max_devices} disp.)</option>`
     ).join("");
   }
 
+  const editClientModal = document.getElementById("editClientModal");
+  const editClientForm = document.getElementById("editClientForm");
+  document.getElementById("closeEditClientModal").addEventListener("click", () => editClientModal.classList.remove("active"));
+  document.getElementById("cancelEditClientBtn").addEventListener("click", () => editClientModal.classList.remove("active"));
+
+  window.openEditClient = async function(clientId) {
+    const client = (window._cachedClients || []).find(c => c.id === clientId);
+    if (!client) return;
+    await populatePlanSelect(document.getElementById("editClientPlanSelect"));
+    document.getElementById("editClientId").value = client.id;
+    document.getElementById("editClientNameInput").value = client.name || "";
+    document.getElementById("editClientEmailInput").value = client.email || "";
+    document.getElementById("editClientPhoneInput").value = client.phone || "";
+    document.getElementById("editClientPlanSelect").value = client.plan_id || "";
+    document.getElementById("editClientStatusSelect").value = client.status || "ACTIVE";
+    document.getElementById("editClientExpiresInput").value = (client.expires_at || "").slice(0, 10);
+    document.getElementById("editClientPasswordInput").value = "";
+    document.getElementById("editClientNotesInput").value = client.notes || "";
+    editClientModal.classList.add("active");
+  };
+
+  editClientForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const clientId = document.getElementById("editClientId").value;
+    const fd = new FormData(editClientForm);
+    const res = await fetch(`/api/clients/${clientId}`, { method: "PUT", body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.detail || "Erro ao atualizar cliente.", "error");
+      return;
+    }
+    showToast("Cliente atualizado com sucesso!");
+    editClientModal.classList.remove("active");
+    loadClients();
+    loadStats();
+  });
+
   btnOpenAddClientModal.addEventListener("click", async () => {
     addClientForm.reset();
-    await populatePlanSelect();
+    await populatePlanSelect(clientPlanSelect);
     addClientModal.classList.add("active");
   });
   closeAddClientModal.addEventListener("click", () => addClientModal.classList.remove("active"));
@@ -329,7 +368,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     clientDevicesTableBody.innerHTML = devices.map(d => `
       <tr>
-        <td style="font-weight:600;">${escapeHtml(d.name)}</td>
+        <td style="font-weight:600;">
+          ${escapeHtml(d.name)}
+          <button class="btn btn-secondary btn-sm" style="padding:0.15rem 0.4rem; margin-left:0.35rem;" onclick="window.renameDevice(${d.id}, ${clientId}, '${escapeHtml(d.name)}')" title="Renomear dispositivo">✏️</button>
+        </td>
         <td class="font-mono">${escapeHtml(d.vpn_ip)}</td>
         <td>
           <div style="display:flex; gap:0.4rem;">
@@ -342,6 +384,20 @@ document.addEventListener("DOMContentLoaded", () => {
         </td>
       </tr>`).join("");
   }
+
+  window.renameDevice = async function(deviceId, clientId, currentName) {
+    const newName = prompt("Novo nome para o dispositivo:", currentName);
+    if (!newName || !newName.trim() || newName.trim() === currentName) return;
+    const fd = new FormData();
+    fd.append("name", newName.trim());
+    const res = await fetch(`/api/devices/${deviceId}`, { method: "PUT", body: fd });
+    if (res.ok) {
+      showToast("Dispositivo renomeado!");
+      await refreshClientDevicesTable(clientId);
+    } else {
+      showToast("Erro ao renomear dispositivo.", "error");
+    }
+  };
 
   adminAddDeviceForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -388,6 +444,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (handleAuthError(res) || !res.ok) return;
     const data = await res.json();
     const plans = data.plans || [];
+    window._cachedPlans = plans;
     badgePlanCount.textContent = plans.length;
 
     plansGrid.innerHTML = plans.map(p => {
@@ -409,6 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div style="border-top:1px solid var(--border-subtle); padding-top:0.85rem; display:flex; justify-content:space-between; align-items:center;">
           <span class="font-mono" style="font-size:0.8rem; color:var(--text-secondary);">${devLabel}</span>
           <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-secondary btn-sm" onclick="window.openEditPlan(${p.id})" title="Editar plano">✏️ Editar</button>
             <button class="btn btn-secondary btn-sm" onclick="window.togglePlan(${p.id})">${p.is_active ? 'Desativar' : 'Ativar'}</button>
             <button class="btn btn-danger btn-sm" onclick="window.deletePlan(${p.id})">🗑️</button>
           </div>
@@ -419,21 +477,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
   btnOpenAddPlanModal.addEventListener("click", () => {
     addPlanForm.reset();
+    document.getElementById("editPlanId").value = "";
+    document.getElementById("planModalTitle").textContent = "Criar Novo Plano";
     addPlanModal.classList.add("active");
   });
   closeAddPlanModal.addEventListener("click", () => addPlanModal.classList.remove("active"));
   cancelAddPlanBtn.addEventListener("click", () => addPlanModal.classList.remove("active"));
 
+  window.openEditPlan = function(planId) {
+    const plan = (window._cachedPlans || []).find(p => p.id === planId);
+    if (!plan) return;
+    document.getElementById("editPlanId").value = plan.id;
+    document.getElementById("planModalTitle").textContent = "Editar Plano";
+    document.getElementById("planNameInput").value = plan.name || "";
+    document.getElementById("planPriceInput").value = Number(plan.price).toFixed(2);
+    document.getElementById("planDaysInput").value = plan.duration_days || 30;
+    document.getElementById("planMaxDevicesInput").value = plan.max_devices || 1;
+    document.getElementById("planDescInput").value = plan.description || "";
+    addPlanModal.classList.add("active");
+  };
+
   addPlanForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const editId = document.getElementById("editPlanId").value;
     const fd = new FormData(addPlanForm);
-    const res = await fetch("/api/plans", { method: "POST", body: fd });
+    const url = editId ? `/api/plans/${editId}` : "/api/plans";
+    const method = editId ? "PUT" : "POST";
+    const res = await fetch(url, { method, body: fd });
     const data = await res.json();
     if (!res.ok) {
-      showToast(data.detail || "Erro ao criar plano.", "error");
+      showToast(data.detail || "Erro ao salvar plano.", "error");
       return;
     }
-    showToast("Plano criado com sucesso!");
+    showToast(editId ? "Plano atualizado com sucesso!" : "Plano criado com sucesso!");
     addPlanModal.classList.remove("active");
     loadPlans();
   });
@@ -500,6 +576,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (handleAuthError(res) || !res.ok) return;
       const data = await res.json();
       const domains = data.domains || [];
+      window._cachedDomains = domains;
       badgeDomainCount.textContent = domains.length;
 
       if (domains.length === 0) {
@@ -520,7 +597,10 @@ document.addEventListener("DOMContentLoaded", () => {
             </label>
           </td>
           <td>
-            <button class="btn btn-secondary btn-sm" onclick="window.deleteDomain(${d.id})" title="Remover">🗑️</button>
+            <div style="display:flex; gap:0.4rem;">
+              <button class="btn btn-secondary btn-sm" onclick="window.openEditDomain(${d.id})" title="Editar regra">✏️ Editar</button>
+              <button class="btn btn-secondary btn-sm" onclick="window.deleteDomain(${d.id})" title="Remover">🗑️</button>
+            </div>
           </td>
         </tr>`).join("");
     } catch (err) {
@@ -577,9 +657,22 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   window.quickBlockPrompt = function(domain) {
+    document.getElementById("editDomainId").value = "";
+    document.getElementById("domainModalTitle").textContent = "Cadastrar Novo Bloqueio";
     document.getElementById("newDomainInput").value = domain;
     document.getElementById("newCategorySelect").value = "Geral";
     document.getElementById("newReasonInput").value = "Bloqueio solicitado via monitor de consultas";
+    addDomainModal.classList.add("active");
+  };
+
+  window.openEditDomain = function(domainId) {
+    const item = (window._cachedDomains || []).find(d => d.id === domainId);
+    if (!item) return;
+    document.getElementById("editDomainId").value = item.id;
+    document.getElementById("domainModalTitle").textContent = "Editar Regra de Bloqueio";
+    document.getElementById("newDomainInput").value = item.domain || "";
+    document.getElementById("newCategorySelect").value = item.category || "Geral";
+    document.getElementById("newReasonInput").value = item.reason || "";
     addDomainModal.classList.add("active");
   };
 
@@ -597,6 +690,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   btnOpenAddModal.addEventListener("click", () => {
     addDomainForm.reset();
+    document.getElementById("editDomainId").value = "";
+    document.getElementById("domainModalTitle").textContent = "Cadastrar Novo Bloqueio";
     addDomainModal.classList.add("active");
   });
   closeAddModal.addEventListener("click", () => addDomainModal.classList.remove("active"));
@@ -604,13 +699,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   addDomainForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const res = await fetch("/api/blocked-domains", { method: "POST", body: new FormData(addDomainForm) });
+    const editId = document.getElementById("editDomainId").value;
+    const url = editId ? `/api/blocked-domains/${editId}` : "/api/blocked-domains";
+    const method = editId ? "PUT" : "POST";
+    const res = await fetch(url, { method, body: new FormData(addDomainForm) });
     const data = await res.json();
     if (!res.ok) {
-      showToast(data.detail || "Erro ao adicionar domínio.", "error");
+      showToast(data.detail || "Erro ao salvar domínio.", "error");
       return;
     }
-    showToast(`Domínio ${data.domain} bloqueado e DNS atualizado!`);
+    showToast(editId ? "Regra atualizada e DNS sincronizado!" : `Domínio ${data.domain} bloqueado e DNS atualizado!`);
     addDomainModal.classList.remove("active");
     loadBlockedDomains();
     loadCategories();

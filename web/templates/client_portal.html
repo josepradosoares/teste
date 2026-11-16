@@ -87,7 +87,10 @@
             {% if devices %}
               {% for dev in devices %}
               <tr>
-                <td style="font-weight: 600;">{{ dev.name }}</td>
+                <td style="font-weight: 600;">
+                  {{ dev.name }}
+                  <button type="button" class="btn btn-secondary btn-sm" style="padding: 0.15rem 0.4rem; margin-left: 0.35rem;" onclick="renameMyDevice({{ dev.id }}, '{{ dev.name|replace("'", "\\'") }}')" title="Renomear">✏️</button>
+                </td>
                 <td class="font-mono">{{ dev.vpn_ip }}</td>
                 <td class="font-mono" style="font-size: 0.8rem; color: var(--text-secondary);">{{ dev.created_at }}</td>
                 <td>
@@ -197,6 +200,16 @@
       document.getElementById("qrConfigText").value = data.config_text;
       document.getElementById("qrDownloadLink").href = `/api/devices/${deviceId}/config`;
       document.getElementById("qrModal").classList.add("active");
+    };
+
+    window.renameMyDevice = async function(deviceId, currentName) {
+      const newName = prompt("Novo nome para o dispositivo:", currentName);
+      if (!newName || !newName.trim() || newName.trim() === currentName) return;
+      const fd = new FormData();
+      fd.append("name", newName.trim());
+      const res = await fetch(`/api/devices/${deviceId}`, { method: "PUT", body: fd });
+      if (res.ok) window.location.reload();
+      else alert("Erro ao renomear dispositivo.");
     };
 
     window.removeMyDevice = async function(deviceId) {

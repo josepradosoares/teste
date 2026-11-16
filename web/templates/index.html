@@ -400,6 +400,63 @@
     </div>
   </div>
 
+  <!-- Modal: Edit Client -->
+  <div class="modal-overlay" id="editClientModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Editar Cliente</h3>
+        <button type="button" class="modal-close" id="closeEditClientModal">&times;</button>
+      </div>
+      <form id="editClientForm" style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <input type="hidden" id="editClientId">
+        <div class="form-group">
+          <label class="form-label" for="editClientNameInput">Nome Completo</label>
+          <input type="text" id="editClientNameInput" name="name" class="form-input" required>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="editClientEmailInput">E-mail</label>
+            <input type="email" id="editClientEmailInput" name="email" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editClientPhoneInput">WhatsApp / Telefone</label>
+            <input type="text" id="editClientPhoneInput" name="phone" class="form-input">
+          </div>
+        </div>
+        <div class="form-grid-3">
+          <div class="form-group">
+            <label class="form-label" for="editClientPlanSelect">Plano</label>
+            <select id="editClientPlanSelect" name="plan_id" class="form-select" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editClientStatusSelect">Status</label>
+            <select id="editClientStatusSelect" name="status" class="form-select" required>
+              <option value="ACTIVE">ATIVO</option>
+              <option value="SUSPENDED">SUSPENSO</option>
+              <option value="EXPIRED">EXPIRADO</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="editClientExpiresInput">Vencimento</label>
+            <input type="date" id="editClientExpiresInput" name="expires_at" class="form-input font-mono" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editClientPasswordInput">Nova Senha (opcional)</label>
+          <input type="password" id="editClientPasswordInput" name="new_password" class="form-input" minlength="6" placeholder="Deixe em branco para manter a senha atual">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editClientNotesInput">Observações</label>
+          <textarea id="editClientNotesInput" name="notes" class="form-textarea" rows="2" placeholder="Anotações internas..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelEditClientBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal: Client Devices & QR Code Manager -->
   <div class="modal-overlay" id="clientDevicesModal">
     <div class="modal-card" style="max-width: 640px;">
@@ -447,14 +504,15 @@
     </div>
   </div>
 
-  <!-- Modal: Add Plan -->
+  <!-- Modal: Add / Edit Plan -->
   <div class="modal-overlay" id="addPlanModal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 class="modal-title">Criar Novo Plano</h3>
+        <h3 class="modal-title" id="planModalTitle">Criar Novo Plano</h3>
         <button type="button" class="modal-close" id="closeAddPlanModal">&times;</button>
       </div>
       <form id="addPlanForm" style="display: flex; flex-direction: column; gap: 0.9rem;">
+        <input type="hidden" id="editPlanId">
         <div class="form-group">
           <label class="form-label" for="planNameInput">Nome do Plano</label>
           <input type="text" id="planNameInput" name="name" class="form-input" placeholder="Ex: Plano Família" required>
@@ -485,14 +543,15 @@
     </div>
   </div>
 
-  <!-- Modal: Add New Blocked Domain -->
+  <!-- Modal: Add / Edit Blocked Domain -->
   <div class="modal-overlay" id="addDomainModal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 class="modal-title">Cadastrar Novo Bloqueio</h3>
+        <h3 class="modal-title" id="domainModalTitle">Cadastrar Novo Bloqueio</h3>
         <button type="button" class="modal-close" id="closeAddModal">&times;</button>
       </div>
       <form id="addDomainForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <input type="hidden" id="editDomainId">
         <div class="form-group">
           <label class="form-label" for="newDomainInput">Domínio do Site</label>
           <input type="text" id="newDomainInput" name="domain" class="form-input font-mono" placeholder="ex: tiktok.com ou betano.com" required>
