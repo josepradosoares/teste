@@ -289,3 +289,55 @@ body {
   cursor: pointer;
   align-self: flex-end;
 }
+
+@media (max-width: 520px) {
+  body {
+    padding: 0.85rem;
+    align-items: flex-start;
+    padding-top: 1.75rem;
+  }
+
+  .blocked-card {
+    padding: 1.35rem 1.15rem;
+    gap: 1.1rem;
+  }
+
+  .blocked-header {
+    gap: 0.85rem;
+    align-items: center;
+  }
+
+  .shield-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 1.4rem;
+  }
+
+  .title {
+    font-size: 1.22rem;
+  }
+
+  .domain-name {
+    font-size: 1rem;
+  }
+
+  .meta-grid {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+
+  .actions-area {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+
+  .btn-request {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .modal-content {
+    padding: 1.25rem;
+  }
+}

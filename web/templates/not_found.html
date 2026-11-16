@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Página Não Encontrada | NetShield DNS</title>
+  <link rel="stylesheet" href="/static/css/blockpage.css">
+</head>
+<body>
+
+  <main class="blocked-card" style="border-top-color: var(--accent-blue);" role="main">
+    <div class="blocked-header">
+      <div class="shield-icon" style="background-color: hsla(210, 80%, 54%, 0.14); border-color: hsla(210, 80%, 54%, 0.3); color: var(--accent-blue);" aria-hidden="true">🛡️</div>
+      <div class="header-text">
+        <span class="blocked-badge" style="color: var(--accent-blue);">NetShield DNS &bull; Família &amp; Cristão</span>
+        <h1 class="title">Página não encontrada</h1>
+      </div>
+    </div>
+
+    <section class="reason-box" style="border-left-color: var(--accent-blue);">
+      <div class="reason-title">Endereço não localizado</div>
+      <p class="reason-text">
+        O endereço <span class="font-mono" style="color: var(--text-main); word-break: break-all;">{{ requested_path }}</span> não existe ou foi movido. Utilize um dos acessos abaixo para continuar pelo celular ou computador.
+      </p>
+    </section>
+
+    <div class="actions-area">
+      <div style="display: flex; gap: 0.65rem; flex-wrap: wrap; width: 100%;">
+        <a href="/login" class="btn-submit" style="text-decoration: none; text-align: center; flex: 1; min-width: 150px;">
+          🔐 Entrar no Painel
+        </a>
+        <a href="/gratis" class="btn-request" style="text-decoration: none; justify-content: center; flex: 1; min-width: 150px;">
+          🛡️ Plano Free Grátis
+        </a>
+      </div>
+      <div class="contact-hint" style="width: 100%; text-align: center;">
+        Suporte: <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>
+      </div>
+    </div>
+  </main>
+
+</body>
+</html>

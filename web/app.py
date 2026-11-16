@@ -777,3 +777,49 @@ async def delete_unblock_request_route(request: Request, request_id: int):
     if not db.delete_unblock_request(request_id):
         raise HTTPException(status_code=404, detail="Solicitação não encontrada.")
     return {"success": True}
+
+# ==================== CATCH-ALL FALLBACK (MOBILE & SUBPATHS) ====================
+
+@app.api_route("/{full_path:path}", methods=["GET", "POST", "HEAD"], response_class=HTMLResponse)
+async def catch_all_fallback(request: Request, full_path: str):
+    # Preserve JSON 404 for unknown /api/* endpoints
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Endpoint não encontrado.")
+
+    settings = db.get_settings()
+    host_header = request.headers.get("host", "")
+    req_domain = host_header.split(":")[0].lower()
+    blocked_info = db.get_blocked_domain_info(req_domain)
+
+    # If the request came for a blocked domain (even on deep subpaths like /explore or /login)
+    if not is_admin_host(host_header, settings) or blocked_info:
+        reason = blocked_info.get("reason") if blocked_info else settings.get("block_message_default")
+        category = blocked_info.get("category") if blocked_info else "Política de Acesso"
+
+        if blocked_info:
+            db.increment_hits(req_domain)
+            db.log_query(client_ip=get_real_client_ip(request), domain=req_domain, status="BLOCKED")
+
+        return templates.TemplateResponse(
+            request=request,
+            name="blocked.html",
+            context={
+                "domain": req_domain,
+                "reason": reason,
+                "category": category,
+                "client_ip": get_real_client_ip(request),
+                "timestamp": datetime.now().strftime("%d/%m/%Y às %H:%M:%S"),
+                "contact_email": settings.get("admin_contact", "suporte@rede.local")
+            }
+        )
+
+    # Unknown route on the panel/admin host -> friendly mobile-responsive 404 page
+    return templates.TemplateResponse(
+        request=request,
+        name="not_found.html",
+        status_code=404,
+        context={
+            "requested_path": f"/{full_path}",
+            "contact_email": settings.get("admin_contact", "suporte@rede.local")
+        }
+    )
