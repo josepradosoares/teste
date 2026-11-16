@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, Request, Form, HTTPException, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -459,7 +460,7 @@ async def bulk_add_domains(
 @app.get("/api/logs")
 async def get_logs(request: Request, limit: int = 50, filter_status: Optional[str] = None, search: Optional[str] = None):
     require_admin(request)
-    dns_manager.parse_dnsmasq_log_stream()
+    await run_in_threadpool(dns_manager.parse_dnsmasq_log_stream)
     logs = db.get_recent_logs(limit=limit, filter_status=filter_status, search=search)
     return {"logs": logs, "count": len(logs)}
 

@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import threading
 import logging
 from typing import List, Dict, Any
 from database import list_blocked_domains, get_settings, log_query, increment_hits
@@ -131,6 +132,7 @@ def reload_dnsmasq_service() -> bool:
     return paid_ok
 
 _last_log_position = 0
+_log_parse_lock = threading.Lock()
 
 def parse_dnsmasq_log_stream():
     """
@@ -142,31 +144,32 @@ def parse_dnsmasq_log_stream():
 
     query_pattern = re.compile(r"query\[(?P<type>[^\]]+)\]\s+(?P<domain>\S+)\s+from\s+(?P<ip>\S+)")
     from database import get_blocked_domain_info
-    
-    try:
-        current_size = os.path.getsize(DNSMASQ_LOG_PATH)
-        if current_size < _last_log_position:
-            _last_log_position = 0 # Log was rotated
 
-        with open(DNSMASQ_LOG_PATH, "r", errors="ignore") as f:
-            if _last_log_position == 0 and current_size > 5000:
-                f.seek(current_size - 4000) # Start near the end on first run
-            else:
-                f.seek(_last_log_position)
+    with _log_parse_lock:
+        try:
+            current_size = os.path.getsize(DNSMASQ_LOG_PATH)
+            if current_size < _last_log_position:
+                _last_log_position = 0 # Log was rotated
 
-            lines = f.readlines()
-            _last_log_position = f.tell()
+            with open(DNSMASQ_LOG_PATH, "r", errors="ignore") as f:
+                if _last_log_position == 0 and current_size > 5000:
+                    f.seek(current_size - 4000) # Start near the end on first run
+                else:
+                    f.seek(_last_log_position)
 
-            for line in lines:
-                m = query_pattern.search(line)
-                if m:
-                    qtype = m.group("type")
-                    domain = m.group("domain").lower()
-                    ip = m.group("ip")
-                    if domain.endswith("."):
-                        domain = domain[:-1]
-                    is_blocked = get_blocked_domain_info(domain) is not None
-                    status = "BLOCKED" if is_blocked else "ALLOWED"
-                    log_query(client_ip=ip, domain=domain, status=status, query_type=qtype)
-    except Exception as e:
-        logger.error(f"Error parsing log file: {e}")
+                lines = f.readlines()
+                _last_log_position = f.tell()
+
+                for line in lines:
+                    m = query_pattern.search(line)
+                    if m:
+                        qtype = m.group("type")
+                        domain = m.group("domain").lower()
+                        ip = m.group("ip")
+                        if domain.endswith("."):
+                            domain = domain[:-1]
+                        is_blocked = get_blocked_domain_info(domain) is not None
+                        status = "BLOCKED" if is_blocked else "ALLOWED"
+                        log_query(client_ip=ip, domain=domain, status=status, query_type=qtype)
+        except Exception as e:
+            logger.error(f"Error parsing log file: {e}")

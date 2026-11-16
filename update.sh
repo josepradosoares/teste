@@ -55,10 +55,12 @@ server=1.0.0.1
 server=8.8.8.8
 cache-size=10000
 min-cache-ttl=300
+neg-ttl=300
 dns-forward-max=1024
 domain-needed
 bogus-priv
 log-queries
+log-async=50
 log-facility=/var/log/dnsmasq.log
 conf-file=/etc/dnsmasq.d/netshield_blocked.conf
 
@@ -79,10 +81,12 @@ server=1.0.0.1
 server=8.8.8.8
 cache-size=5000
 min-cache-ttl=300
+neg-ttl=300
 dns-forward-max=512
 domain-needed
 bogus-priv
 log-queries
+log-async=50
 log-facility=/var/log/dnsmasq.log
 conf-file=/etc/dnsmasq.d/netshield_free_blocked.conf
 EOF
@@ -195,6 +199,7 @@ bash "${REPO_DIR}/scripts/optimize_network.sh"
 cat << 'EOF' > /etc/logrotate.d/netshield-dnsmasq
 /var/log/dnsmasq.log {
     daily
+    maxsize 50M
     rotate 7
     compress
     delaycompress

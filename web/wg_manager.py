@@ -101,7 +101,7 @@ def build_client_config(device: Dict[str, Any]) -> str:
         f"PrivateKey = {device['wg_private_key']}\n"
         f"Address = {device['vpn_ip']}/24, {vpn_ipv6}/64\n"
         f"DNS = 10.8.0.1, fd10:8::1\n"
-        f"MTU = 1420\n\n"
+        f"MTU = 1380\n\n"
         f"[Peer]\n"
         f"PublicKey = {server_pubkey}\n"
         f"Endpoint = {server_ip}:{wg_port}\n"
@@ -153,7 +153,7 @@ def sync_wireguard_peers() -> Dict[str, Any]:
         "[Interface]",
         "Address = 10.8.0.1/24, fd10:8::1/64",
         f"ListenPort = {wg_port}",
-        "MTU = 1420",
+        "MTU = 1380",
         f"PrivateKey = {priv_key}",
         (
             f"PostUp = sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; "
@@ -161,18 +161,18 @@ def sync_wireguard_peers() -> Dict[str, Any]:
             f"iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; "
             f"iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; "
             f"iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; "
-            f"iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE; "
             f"ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true; "
             f"ip6tables -I FORWARD 1 -o wg0 -j ACCEPT 2>/dev/null || true; "
+            f"ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true; "
             f"ip6tables -t nat -A POSTROUTING -s fd10:8::/64 -o {wan_iface} -j MASQUERADE 2>/dev/null || true"
         ),
         (
             f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; "
             f"iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; "
             f"iptables -t nat -D POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; "
-            f"iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE; "
             f"ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true; "
             f"ip6tables -D FORWARD -o wg0 -j ACCEPT 2>/dev/null || true; "
+            f"ip6tables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true; "
             f"ip6tables -t nat -D POSTROUTING -s fd10:8::/64 -o {wan_iface} -j MASQUERADE 2>/dev/null || true"
         ),
         ""
@@ -209,16 +209,18 @@ def sync_wireguard_peers() -> Dict[str, Any]:
 
 
 def _ensure_wg_forwarding(wan_iface: str):
-    """Ensures IPv4/IPv6 forwarding, FORWARD (above Oracle Cloud REJECT), and MASQUERADE are active."""
+    """Ensures IPv4/IPv6 forwarding, FORWARD (above Oracle Cloud REJECT), TCPMSS clamping, and MASQUERADE are active."""
     try:
         subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
         subprocess.run(["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
         rules = [
             (["iptables", "-C", "FORWARD", "-i", "wg0", "-j", "ACCEPT"], ["iptables", "-I", "FORWARD", "1", "-i", "wg0", "-j", "ACCEPT"]),
             (["iptables", "-C", "FORWARD", "-o", "wg0", "-j", "ACCEPT"], ["iptables", "-I", "FORWARD", "1", "-o", "wg0", "-j", "ACCEPT"]),
+            (["iptables", "-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"], ["iptables", "-t", "mangle", "-A", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"]),
             (["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", "10.8.0.0/16", "-o", wan_iface, "-j", "MASQUERADE"], ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.8.0.0/16", "-o", wan_iface, "-j", "MASQUERADE"]),
             (["ip6tables", "-C", "FORWARD", "-i", "wg0", "-j", "ACCEPT"], ["ip6tables", "-I", "FORWARD", "1", "-i", "wg0", "-j", "ACCEPT"]),
             (["ip6tables", "-C", "FORWARD", "-o", "wg0", "-j", "ACCEPT"], ["ip6tables", "-I", "FORWARD", "1", "-o", "wg0", "-j", "ACCEPT"]),
+            (["ip6tables", "-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"], ["ip6tables", "-t", "mangle", "-A", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"]),
             (["ip6tables", "-t", "nat", "-C", "POSTROUTING", "-s", "fd10:8::/64", "-o", wan_iface, "-j", "MASQUERADE"], ["ip6tables", "-t", "nat", "-A", "POSTROUTING", "-s", "fd10:8::/64", "-o", wan_iface, "-j", "MASQUERADE"]),
         ]
         for check_cmd, add_cmd in rules:
