@@ -41,10 +41,20 @@ def init_db():
         reason TEXT DEFAULT 'Acesso não autorizado pelas regras de segurança',
         category TEXT DEFAULT 'Geral',
         enabled INTEGER DEFAULT 1,
+        free_included INTEGER DEFAULT 0,
         hits INTEGER DEFAULT 0,
         created_at TEXT NOT NULL
     );
     """)
+
+    # Safe migration for existing databases lacking free_included
+    cursor.execute("PRAGMA table_info(blocked_domains);")
+    bd_cols = {row[1] for row in cursor.fetchall()}
+    if "free_included" not in bd_cols:
+        cursor.execute("ALTER TABLE blocked_domains ADD COLUMN free_included INTEGER DEFAULT 0;")
+        cursor.execute(
+            "UPDATE blocked_domains SET free_included = 1 WHERE category IN ('Adulto', 'Apostas', 'Segurança / Malware');"
+        )
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS query_logs (
@@ -165,7 +175,7 @@ def init_db():
         "INSERT OR IGNORE INTO plans (name, description, price, duration_days, max_devices, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?);",
         (
             "Plano Free",
-            "Versão gratuita com proteção DNS + VPN WireGuard para 1 dispositivo, bloqueio de anúncios e conteúdo adulto.",
+            "Proteção essencial para a família cristã: bloqueia pornografia, apostas/cassinos e ativa SafeSearch em 1 dispositivo.",
             0.0,
             30,
             1,
@@ -192,20 +202,23 @@ def init_db():
     count = cursor.fetchone()[0]
     if count == 0:
         initial_blocks = [
-            ("tiktok.com", "Conteúdo não autorizado durante o expediente", "Redes Sociais"),
-            ("www.tiktok.com", "Conteúdo não autorizado durante o expediente", "Redes Sociais"),
-            ("bet365.com", "Jogos de aposta e cassino online proibidos na rede", "Apostas"),
-            ("blaze.com", "Jogos de aposta e cassino online proibidos na rede", "Apostas"),
-            ("xvideos.com", "Conteúdo adulto e impróprio restrito pela política", "Adulto"),
-            ("pornhub.com", "Conteúdo adulto e impróprio restrito pela política", "Adulto"),
-            ("torrentz2eu.org", "Downloads P2P e compartilhamento ilegal de arquivos", "P2P / Torrent"),
-            ("doubleclick.net", "Rastreador e rede de anúncios bloqueada", "Anúncios & Trackers"),
-            ("googlesyndication.com", "Rede de anúncios bloqueada", "Anúncios & Trackers"),
+            ("tiktok.com", "Controle parental de redes sociais (Plano Família)", "Redes Sociais", 0),
+            ("www.tiktok.com", "Controle parental de redes sociais (Plano Família)", "Redes Sociais", 0),
+            ("bet365.com", "Proteção contra jogos de aposta e cassino online", "Apostas", 1),
+            ("blaze.com", "Proteção contra jogos de aposta e cassino online", "Apostas", 1),
+            ("betano.com", "Proteção contra jogos de aposta e cassino online", "Apostas", 1),
+            ("xvideos.com", "Conteúdo adulto e impróprio bloqueado pela proteção familiar", "Adulto", 1),
+            ("pornhub.com", "Conteúdo adulto e impróprio bloqueado pela proteção familiar", "Adulto", 1),
+            ("xnxx.com", "Conteúdo adulto e impróprio bloqueado pela proteção familiar", "Adulto", 1),
+            ("onlyfans.com", "Conteúdo adulto e impróprio bloqueado pela proteção familiar", "Adulto", 1),
+            ("torrentz2eu.org", "Downloads P2P e compartilhamento ilegal de arquivos", "P2P / Torrent", 0),
+            ("doubleclick.net", "Rastreador e rede de anúncios bloqueada", "Anúncios & Trackers", 0),
+            ("googlesyndication.com", "Rede de anúncios bloqueada", "Anúncios & Trackers", 0),
         ]
-        for domain, reason, cat in initial_blocks:
+        for domain, reason, cat, free_inc in initial_blocks:
             cursor.execute(
-                "INSERT INTO blocked_domains (domain, reason, category, enabled, hits, created_at) VALUES (?, ?, ?, 1, 0, ?);",
-                (domain.lower(), reason, cat, now)
+                "INSERT INTO blocked_domains (domain, reason, category, enabled, free_included, hits, created_at) VALUES (?, ?, ?, 1, ?, 0, ?);",
+                (domain.lower(), reason, cat, free_inc, now)
             )
 
     conn.commit()
@@ -546,14 +559,15 @@ def list_devices(client_id: Optional[int] = None) -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 def list_active_vpn_devices() -> List[Dict[str, Any]]:
-    """Returns only devices whose parent client is ACTIVE and not expired."""
+    """Returns only devices whose parent client is ACTIVE and not expired, including plan_price."""
     refresh_expired_clients()
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-    SELECT d.*, c.name as client_name
+    SELECT d.*, c.name as client_name, COALESCE(p.price, 0) as plan_price
     FROM devices d
     JOIN clients c ON d.client_id = c.id
+    LEFT JOIN plans p ON c.plan_id = p.id
     WHERE d.is_active = 1 AND c.status = 'ACTIVE'
     ORDER BY d.id ASC;
     """)
@@ -669,7 +683,7 @@ def get_blocked_domain_info(domain: str) -> Optional[Dict[str, Any]]:
     conn.close()
     return dict(row) if row else None
 
-def add_blocked_domain(domain: str, reason: str, category: str = "Geral") -> bool:
+def add_blocked_domain(domain: str, reason: str, category: str = "Geral", free_included: int = 0) -> bool:
     clean_domain = domain.strip().lower()
     if not clean_domain:
         return False
@@ -678,8 +692,8 @@ def add_blocked_domain(domain: str, reason: str, category: str = "Geral") -> boo
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         cursor.execute(
-            "INSERT INTO blocked_domains (domain, reason, category, enabled, hits, created_at) VALUES (?, ?, ?, 1, 0, ?);",
-            (clean_domain, reason.strip() or "Bloqueio administrativo", category.strip() or "Geral", now)
+            "INSERT INTO blocked_domains (domain, reason, category, enabled, free_included, hits, created_at) VALUES (?, ?, ?, 1, ?, 0, ?);",
+            (clean_domain, reason.strip() or "Bloqueio administrativo", category.strip() or "Geral", 1 if free_included else 0, now)
         )
         conn.commit()
         success = True
@@ -689,7 +703,7 @@ def add_blocked_domain(domain: str, reason: str, category: str = "Geral") -> boo
         conn.close()
     return success
 
-def update_blocked_domain(domain_id: int, domain: str, category: str, reason: str) -> bool:
+def update_blocked_domain(domain_id: int, domain: str, category: str, reason: str, free_included: int = 0) -> bool:
     clean_domain = domain.strip().lower()
     if clean_domain.startswith("http://"):
         clean_domain = clean_domain[7:]
@@ -702,8 +716,8 @@ def update_blocked_domain(domain_id: int, domain: str, category: str, reason: st
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "UPDATE blocked_domains SET domain = ?, category = ?, reason = ? WHERE id = ?;",
-            (clean_domain, category.strip(), reason.strip(), domain_id)
+            "UPDATE blocked_domains SET domain = ?, category = ?, reason = ?, free_included = ? WHERE id = ?;",
+            (clean_domain, category.strip(), reason.strip(), 1 if free_included else 0, domain_id)
         )
         ok = cursor.rowcount > 0
         conn.commit()
@@ -712,6 +726,20 @@ def update_blocked_domain(domain_id: int, domain: str, category: str, reason: st
     finally:
         conn.close()
     return ok
+
+def toggle_blocked_domain_free(domain_id: int) -> Optional[int]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT free_included FROM blocked_domains WHERE id = ?;", (domain_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+    new_state = 0 if (row["free_included"] or 0) == 1 else 1
+    cursor.execute("UPDATE blocked_domains SET free_included = ? WHERE id = ?;", (new_state, domain_id))
+    conn.commit()
+    conn.close()
+    return new_state
 
 def toggle_blocked_domain(domain_id: int) -> Optional[int]:
     conn = get_db()

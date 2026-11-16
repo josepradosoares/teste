@@ -8,86 +8,124 @@ from database import list_blocked_domains, get_settings, log_query, increment_hi
 logger = logging.getLogger("netshield.dns")
 
 DNSMASQ_BLOCK_CONF = os.environ.get("NETSHIELD_DNSMASQ_CONF", "/etc/dnsmasq.d/netshield_blocked.conf")
+DNSMASQ_FREE_BLOCK_CONF = os.environ.get("NETSHIELD_DNSMASQ_FREE_CONF", "/etc/dnsmasq.d/netshield_free_blocked.conf")
 DNSMASQ_LOG_PATH = os.environ.get("NETSHIELD_LOG_PATH", "/var/log/dnsmasq.log")
+
+SAFESEARCH_RULES = [
+    "# SafeSearch & YouTube Restricted Mode (Plano Free Família & Cristão)",
+    "address=/www.google.com/216.239.38.120",
+    "address=/google.com/216.239.38.120",
+    "address=/www.google.com.br/216.239.38.120",
+    "address=/google.com.br/216.239.38.120",
+    "address=/www.bing.com/204.79.197.220",
+    "address=/www.youtube.com/216.239.38.119",
+    "address=/m.youtube.com/216.239.38.119",
+    "address=/youtubei.googleapis.com/216.239.38.119",
+    "address=/www.youtube-nocookie.com/216.239.38.119",
+    ""
+]
+
+def _write_conf_with_fallback(target_path: str, fallback_path: str, content: str) -> bool:
+    try:
+        conf_dir = os.path.dirname(target_path)
+        if conf_dir and not os.path.exists(conf_dir):
+            os.makedirs(conf_dir, exist_ok=True)
+        with open(target_path, "w") as f:
+            f.write(content)
+        return True
+    except (PermissionError, FileNotFoundError, OSError):
+        try:
+            with open(fallback_path, "w") as f:
+                f.write(content)
+            logger.info(f"Fallback written to {fallback_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Error writing fallback blocklist {fallback_path}: {e}")
+            return False
+    except Exception as e:
+        logger.error(f"Error writing blocklist {target_path}: {e}")
+        return False
 
 def sync_dnsmasq_blocklist() -> Dict[str, Any]:
     """
-    Reads active blocked domains from SQLite and generates the dnsmasq block configuration.
-    Then reloads dnsmasq service so changes take effect immediately.
+    Reads active blocked domains from SQLite and generates both:
+      1) Paid/Full dnsmasq blocklist (all enabled rules)
+      2) Free Family & Christian dnsmasq blocklist (free_included == 1 + SafeSearch)
+    Then reloads both dnsmasq services so changes take effect immediately.
     """
     settings = get_settings()
     server_ip = settings.get("server_ip", "127.0.0.1")
     blocked_domains = list_blocked_domains()
 
-    lines = [
+    paid_lines = [
         "# ====================================================",
-        "# NetShield DNS - Automated Blocklist",
+        "# NetShield DNS - Automated Blocklist (Planos Pagos / Completo)",
         f"# Server Sinkhole IP: {server_ip}",
         "# Do not edit manually - managed by NetShield Web Panel",
         "# ====================================================",
         ""
     ]
 
+    free_lines = [
+        "# ====================================================",
+        "# NetShield DNS - Automated Blocklist (Plano Free Família & Cristão)",
+        f"# Server Sinkhole IP: {server_ip}",
+        "# Do not edit manually - managed by NetShield Web Panel",
+        "# ====================================================",
+        ""
+    ] + SAFESEARCH_RULES
+
     active_count = 0
+    free_count = 0
     for item in blocked_domains:
         if item.get("enabled", 1) == 1:
             dom = item["domain"].strip().lower()
             if dom:
-                # Syntax: address=/example.com/192.168.1.100
-                lines.append(f"address=/{dom}/{server_ip}")
+                rule = f"address=/{dom}/{server_ip}"
+                paid_lines.append(rule)
                 active_count += 1
+                if item.get("free_included", 0) == 1:
+                    free_lines.append(rule)
+                    free_count += 1
 
-    content = "\n".join(lines) + "\n"
+    paid_content = "\n".join(paid_lines) + "\n"
+    free_content = "\n".join(free_lines) + "\n"
 
-    write_success = False
-    try:
-        conf_dir = os.path.dirname(DNSMASQ_BLOCK_CONF)
-        if conf_dir and not os.path.exists(conf_dir):
-            os.makedirs(conf_dir, exist_ok=True)
+    write_paid = _write_conf_with_fallback(DNSMASQ_BLOCK_CONF, "/tmp/netshield_blocked.conf", paid_content)
+    write_free = _write_conf_with_fallback(DNSMASQ_FREE_BLOCK_CONF, "/tmp/netshield_free_blocked.conf", free_content)
 
-        with open(DNSMASQ_BLOCK_CONF, "w") as f:
-            f.write(content)
-        write_success = True
-    except (PermissionError, FileNotFoundError, OSError):
-        # If running as non-root during testing or directory not writable, fallback to /tmp
-        tmp_conf = "/tmp/netshield_blocked.conf"
-        try:
-            with open(tmp_conf, "w") as f:
-                f.write(content)
-            logger.info(f"Fallback written to {tmp_conf}")
-            write_success = True
-        except Exception as e:
-            logger.error(f"Error writing fallback blocklist: {e}")
-            return {"success": False, "error": str(e), "count": active_count}
-    except Exception as e:
-        logger.error(f"Error writing blocklist: {e}")
-        return {"success": False, "error": str(e), "count": active_count}
-
-    # Reload dnsmasq
+    # Reload both dnsmasq instances
     reload_status = reload_dnsmasq_service()
 
     return {
-        "success": write_success,
+        "success": write_paid and write_free,
         "active_rules": active_count,
+        "free_rules": free_count,
         "sinkhole_ip": server_ip,
         "dnsmasq_reloaded": reload_status
     }
 
 def reload_dnsmasq_service() -> bool:
-    """Attempts to signal dnsmasq to reload its hosts and configs without dropping connections."""
-    commands = [
-        ["systemctl", "reload", "dnsmasq"],
-        ["systemctl", "restart", "dnsmasq"],
-        ["killall", "-HUP", "dnsmasq"]
-    ]
-    for cmd in commands:
+    """Attempts to signal both dnsmasq (paid) and netshield-dns-free (free) to reload configs."""
+    paid_ok = False
+    for cmd in [["systemctl", "reload", "dnsmasq"], ["systemctl", "restart", "dnsmasq"], ["killall", "-HUP", "dnsmasq"]]:
         try:
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
             if res.returncode == 0:
-                return True
+                paid_ok = True
+                break
         except Exception:
             continue
-    return False
+
+    for cmd in [["systemctl", "reload", "netshield-dns-free"], ["systemctl", "restart", "netshield-dns-free"]]:
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3)
+            if res.returncode == 0:
+                break
+        except Exception:
+            continue
+
+    return paid_ok
 
 _last_log_position = 0
 

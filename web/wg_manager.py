@@ -147,7 +147,43 @@ def sync_wireguard_peers() -> Dict[str, Any]:
             stderr=subprocess.PIPE,
             timeout=5
         )
+        _sync_free_dns_nat(active_devices)
         return {"success": True, "synced": True, "active_peers": len(active_devices)}
     except Exception as e:
         logger.warning(f"Could not sync WireGuard config: {e}")
         return {"success": False, "synced": False, "reason": str(e), "active_peers": len(active_devices)}
+
+
+def _sync_free_dns_nat(active_devices):
+    """
+    Redirects DNS (UDP/TCP 53) from Free-tier VPN IPs (plan_price == 0) to port 5354
+    where netshield-dns-free runs the Christian & Family Free rules + SafeSearch.
+    """
+    try:
+        # Ensure chain exists and is flushed
+        subprocess.run(["iptables", "-t", "nat", "-N", "NETSHIELD_DNS_FREE"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        subprocess.run(["iptables", "-t", "nat", "-F", "NETSHIELD_DNS_FREE"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+
+        # Ensure PREROUTING jumps to NETSHIELD_DNS_FREE for DNS on wg0
+        for proto in ("udp", "tcp"):
+            chk = subprocess.run(
+                ["iptables", "-t", "nat", "-C", "PREROUTING", "-i", "wg0", "-d", "10.8.0.1", "-p", proto, "--dport", "53", "-j", "NETSHIELD_DNS_FREE"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+            )
+            if chk.returncode != 0:
+                subprocess.run(
+                    ["iptables", "-t", "nat", "-I", "PREROUTING", "1", "-i", "wg0", "-d", "10.8.0.1", "-p", proto, "--dport", "53", "-j", "NETSHIELD_DNS_FREE"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+                )
+
+        # Add REDIRECT rules for each Free-tier device IP
+        for dev in active_devices:
+            if float(dev.get("plan_price") or 0) <= 0:
+                vpn_ip = dev["vpn_ip"]
+                for proto in ("udp", "tcp"):
+                    subprocess.run(
+                        ["iptables", "-t", "nat", "-A", "NETSHIELD_DNS_FREE", "-s", f"{vpn_ip}/32", "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-ports", "5354"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+                    )
+    except Exception as e:
+        logger.warning(f"Could not sync Free DNS NAT rules: {e}")

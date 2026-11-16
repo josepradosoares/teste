@@ -63,6 +63,44 @@ conf-file=/etc/dnsmasq.d/netshield_blocked.conf
 bind-dynamic
 EOF
 
+# Instância dedicada do dnsmasq para o Plano Free Família & Cristão (porta 5354)
+cat << 'EOF' > /etc/dnsmasq-free.conf
+# NetShield DNS - Instância Plano Free (Família & Cristão)
+port=5354
+listen-address=10.8.0.1,127.0.0.1
+bind-dynamic
+no-resolv
+no-poll
+all-servers
+server=1.1.1.1
+server=1.0.0.1
+server=8.8.8.8
+cache-size=5000
+min-cache-ttl=300
+dns-forward-max=512
+domain-needed
+bogus-priv
+log-queries
+log-facility=/var/log/dnsmasq.log
+conf-file=/etc/dnsmasq.d/netshield_free_blocked.conf
+EOF
+
+cat << 'EOF' > /etc/systemd/system/netshield-dns-free.service
+[Unit]
+Description=NetShield DNS Free Tier (Familia & Cristao)
+After=network.target dnsmasq.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq -k --conf-file=/etc/dnsmasq-free.conf --pid-file=/run/dnsmasq-free.pid
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # Desativar stub listener do systemd-resolved para evitar colisão na porta 53
 mkdir -p /etc/systemd/resolved.conf.d/
 cat << 'EOF' > /etc/systemd/resolved.conf.d/netshield-dns.conf
@@ -74,6 +112,7 @@ systemctl restart systemd-resolved 2>/dev/null || true
 echo -e "\n${CYAN}[4/7] Sincronizando banco de dados e regras de bloqueio...${NC}"
 export NETSHIELD_DB_PATH=/opt/netshield/data/netshield.db
 export NETSHIELD_DNSMASQ_CONF=/etc/dnsmasq.d/netshield_blocked.conf
+export NETSHIELD_DNSMASQ_FREE_CONF=/etc/dnsmasq.d/netshield_free_blocked.conf
 export NETSHIELD_LOG_PATH=/var/log/dnsmasq.log
 
 /opt/netshield/venv/bin/python -c "
@@ -128,8 +167,9 @@ bash "${REPO_DIR}/scripts/optimize_network.sh"
 echo -e "\n${CYAN}[6/7] Habilitando e iniciando todos os serviços essenciais...${NC}"
 cp "${REPO_DIR}/config/netshield.service" /etc/systemd/system/netshield.service
 systemctl daemon-reload
-systemctl enable netshield.service dnsmasq nginx
+systemctl enable netshield.service dnsmasq netshield-dns-free.service nginx
 systemctl restart dnsmasq
+systemctl restart netshield-dns-free.service
 systemctl restart netshield.service
 systemctl restart nginx
 /opt/netshield/venv/bin/python -c "import sys; sys.path.append('/opt/netshield/web'); import wg_manager; wg_manager.sync_wireguard_peers()" 2>/dev/null || true

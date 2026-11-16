@@ -61,6 +61,34 @@
       </div>
     </section>
 
+    <section class="surface-card" style="margin-bottom: 1.5rem;">
+      <div class="surface-header" style="margin-bottom: 0.75rem;">
+        <div>
+          <h2 class="surface-title">🛡️ Proteção Ativa — Família &amp; Cristão</h2>
+          <p class="surface-desc">
+            {% if client.plan_price == 0 %}
+              Seu túnel WireGuard está usando o filtro <strong>Plano Free Família &amp; Cristão</strong>.
+            {% else %}
+              Seu túnel WireGuard está usando a <strong>Proteção Completa (Plano Pago)</strong>.
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+        <span class="badge badge-active">✓ Conteúdo Adulto</span>
+        <span class="badge badge-active">✓ Apostas &amp; Cassinos</span>
+        <span class="badge badge-active">✓ Malware &amp; Golpes</span>
+        <span class="badge badge-active">✓ SafeSearch (Google/YouTube/Bing)</span>
+        {% if client.plan_price > 0 %}
+          <span class="badge badge-active">✓ Anúncios &amp; Trackers</span>
+          <span class="badge badge-active">✓ Redes Sociais</span>
+          <span class="badge badge-active">✓ Jogos Online &amp; P2P</span>
+        {% else %}
+          <span class="badge badge-category">🔒 Anúncios &amp; Redes Sociais (Planos Pagos)</span>
+        {% endif %}
+      </div>
+    </section>
+
     <section class="surface-card">
       <div class="surface-header">
         <div>

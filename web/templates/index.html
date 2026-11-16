@@ -235,6 +235,7 @@
               <tr>
                 <th>Domínio</th>
                 <th>Categoria</th>
+                <th>Plano Free</th>
                 <th>Motivo Exibido ao Usuário</th>
                 <th>Bloqueios (Hits)</th>
                 <th>Status</th>
@@ -243,7 +244,7 @@
             </thead>
             <tbody id="domainsTableBody">
               <tr>
-                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Carregando lista de regras...</td>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Carregando lista de regras...</td>
               </tr>
             </tbody>
           </table>
@@ -581,9 +582,13 @@
           <label class="form-label" for="newReasonInput">Motivo do Bloqueio (Exibido na tela)</label>
           <textarea id="newReasonInput" name="reason" rows="3" class="form-textarea" placeholder="Ex: Este site não é permitido conforme política de segurança..."></textarea>
         </div>
+        <label style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+          <input type="checkbox" id="newFreeIncludedInput" name="free_included" value="1">
+          <span>🛡️ Incluir no <strong>Plano Free (Família &amp; Cristão)</strong></span>
+        </label>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelAddBtn">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Adicionar Regra</button>
+          <button type="submit" class="btn btn-primary">Salvar Regra</button>
         </div>
       </form>
     </div>
@@ -609,6 +614,8 @@
             <option value="Apostas">Apostas</option>
             <option value="Adulto">Adulto</option>
             <option value="Anúncios & Trackers">Anúncios & Trackers</option>
+            <option value="Jogos">Jogos Online</option>
+            <option value="Segurança / Malware">Segurança / Malware</option>
             <option value="Geral" selected>Geral</option>
           </select>
         </div>
@@ -616,6 +623,10 @@
           <label class="form-label" for="bulkReason">Motivo do Bloqueio</label>
           <input type="text" id="bulkReason" name="reason" class="form-input" value="Bloqueio administrativo via lista de regras">
         </div>
+        <label style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+          <input type="checkbox" id="bulkFreeIncludedInput" name="free_included" value="1">
+          <span>🛡️ Incluir todos no <strong>Plano Free (Família &amp; Cristão)</strong></span>
+        </label>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelBulkBtn">Cancelar</button>
           <button type="submit" class="btn btn-primary">Importar Todos</button>

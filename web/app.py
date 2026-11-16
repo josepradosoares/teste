@@ -370,14 +370,15 @@ async def add_domain(
     request: Request,
     domain: str = Form(...),
     reason: str = Form(""),
-    category: str = Form("Geral")
+    category: str = Form("Geral"),
+    free_included: int = Form(0)
 ):
     require_admin(request)
     clean_domain = domain.strip().lower()
     if not clean_domain:
         raise HTTPException(status_code=400, detail="O nome do domínio não pode ser vazio.")
 
-    success = db.add_blocked_domain(domain=clean_domain, reason=reason, category=category)
+    success = db.add_blocked_domain(domain=clean_domain, reason=reason, category=category, free_included=free_included)
     if not success:
         raise HTTPException(status_code=409, detail="Este domínio já está cadastrado na lista de bloqueios.")
 
@@ -390,14 +391,24 @@ async def update_domain(
     domain_id: int,
     domain: str = Form(...),
     category: str = Form("Geral"),
-    reason: str = Form("Acesso bloqueado pelo administrador.")
+    reason: str = Form("Acesso bloqueado pelo administrador."),
+    free_included: int = Form(0)
 ):
     require_admin(request)
-    ok = db.update_blocked_domain(domain_id=domain_id, domain=domain, category=category, reason=reason)
+    ok = db.update_blocked_domain(domain_id=domain_id, domain=domain, category=category, reason=reason, free_included=free_included)
     if not ok:
         raise HTTPException(status_code=400, detail="Domínio inválido, duplicado ou regra não encontrada.")
     sync_result = dns_manager.sync_dnsmasq_blocklist()
     return {"success": True, "sync": sync_result}
+
+@app.post("/api/blocked-domains/{domain_id}/toggle-free")
+async def toggle_domain_free(request: Request, domain_id: int):
+    require_admin(request)
+    new_state = db.toggle_blocked_domain_free(domain_id)
+    if new_state is None:
+        raise HTTPException(status_code=404, detail="Domínio não encontrado.")
+    sync_result = dns_manager.sync_dnsmasq_blocklist()
+    return {"success": True, "free_included": new_state, "sync": sync_result}
 
 @app.post("/api/blocked-domains/{domain_id}/toggle")
 async def toggle_domain(request: Request, domain_id: int):
@@ -424,13 +435,14 @@ async def bulk_add_domains(
     request: Request,
     domains_text: str = Form(...),
     category: str = Form("Geral"),
-    reason: str = Form("Bloqueio em massa")
+    reason: str = Form("Bloqueio em massa"),
+    free_included: int = Form(0)
 ):
     require_admin(request)
     lines = [line.strip().lower() for line in domains_text.splitlines() if line.strip()]
     added_count = 0
     for dom in lines:
-        if db.add_blocked_domain(dom, reason=reason, category=category):
+        if db.add_blocked_domain(dom, reason=reason, category=category, free_included=free_included):
             added_count += 1
 
     sync_result = dns_manager.sync_dnsmasq_blocklist()

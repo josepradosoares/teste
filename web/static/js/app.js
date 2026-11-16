@@ -628,7 +628,7 @@ document.addEventListener("DOMContentLoaded", () => {
       badgeDomainCount.textContent = domains.length;
 
       if (domains.length === 0) {
-        domainsTableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:2rem;">Nenhum domínio cadastrado.</td></tr>`;
+        domainsTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">Nenhum domínio cadastrado.</td></tr>`;
         return;
       }
 
@@ -636,6 +636,11 @@ document.addEventListener("DOMContentLoaded", () => {
         <tr>
           <td class="font-mono" style="font-weight:600;">${escapeHtml(d.domain)}</td>
           <td><span class="badge badge-category">${escapeHtml(d.category || "Geral")}</span></td>
+          <td>
+            <button type="button" class="btn btn-sm ${d.free_included === 1 ? "btn-primary" : "btn-secondary"}" onclick="window.toggleDomainFree(${d.id})" title="Alternar inclusão no Plano Free Família & Cristão">
+              ${d.free_included === 1 ? "🛡️ Free" : "Pago"}
+            </button>
+          </td>
           <td style="color:var(--text-secondary);">${escapeHtml(d.reason || "-")}</td>
           <td class="font-mono">${(d.hits || 0).toLocaleString()}</td>
           <td>
@@ -703,6 +708,17 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   };
 
+  window.toggleDomainFree = async function(id) {
+    const res = await fetch(`/api/blocked-domains/${id}/toggle-free`, { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      showToast(data.free_included === 1 ? "Regra incluída no Plano Free!" : "Regra restrita aos Planos Pagos.");
+      loadBlockedDomains();
+    } else {
+      showToast("Erro ao atualizar regra do Plano Free.", "error");
+    }
+  };
+
   window.toggleDomain = async function(id) {
     const res = await fetch(`/api/blocked-domains/${id}/toggle`, { method: "POST" });
     if (res.ok) {
@@ -734,6 +750,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("newDomainInput").value = domain;
     document.getElementById("newCategorySelect").value = "Geral";
     document.getElementById("newReasonInput").value = "Bloqueio solicitado via monitor de consultas";
+    document.getElementById("newFreeIncludedInput").checked = false;
     addDomainModal.classList.add("active");
   };
 
@@ -745,6 +762,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("newDomainInput").value = item.domain || "";
     document.getElementById("newCategorySelect").value = item.category || "Geral";
     document.getElementById("newReasonInput").value = item.reason || "";
+    document.getElementById("newFreeIncludedInput").checked = item.free_included === 1;
     addDomainModal.classList.add("active");
   };
 
@@ -763,6 +781,7 @@ document.addEventListener("DOMContentLoaded", () => {
   btnOpenAddModal.addEventListener("click", () => {
     addDomainForm.reset();
     document.getElementById("editDomainId").value = "";
+    document.getElementById("newFreeIncludedInput").checked = false;
     document.getElementById("domainModalTitle").textContent = "Cadastrar Novo Bloqueio";
     addDomainModal.classList.add("active");
   });
