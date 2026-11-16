@@ -217,6 +217,17 @@
       const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
       if (res.ok) window.location.reload();
     };
+
+    document.querySelectorAll(".modal-overlay").forEach(overlay => {
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) overlay.classList.remove("active");
+      });
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        document.querySelectorAll(".modal-overlay.active").forEach(m => m.classList.remove("active"));
+      }
+    });
   </script>
 </body>
 </html>

@@ -91,7 +91,8 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function handleAuthError(res) {
@@ -463,12 +464,12 @@ document.addEventListener("DOMContentLoaded", () => {
           ${priceHtml}
           <p style="font-size:0.84rem; color:var(--text-secondary); margin-top:0.6rem;">${escapeHtml(p.description || "Sem descrição")}</p>
         </div>
-        <div style="border-top:1px solid var(--border-subtle); padding-top:0.85rem; display:flex; justify-content:space-between; align-items:center;">
-          <span class="font-mono" style="font-size:0.8rem; color:var(--text-secondary);">${devLabel}</span>
-          <div style="display:flex; gap:0.4rem;">
+        <div style="border-top:1px solid var(--border-subtle); padding-top:0.85rem; display:flex; flex-direction:column; gap:0.65rem;">
+          <span class="font-mono" style="font-size:0.8rem; color:var(--text-secondary);">📱 ${devLabel}</span>
+          <div style="display:flex; gap:0.45rem; flex-wrap:wrap; align-items:center;">
             <button class="btn btn-secondary btn-sm" onclick="window.openEditPlan(${p.id})" title="Editar plano">✏️ Editar</button>
             <button class="btn btn-secondary btn-sm" onclick="window.togglePlan(${p.id})">${p.is_active ? 'Desativar' : 'Ativar'}</button>
-            <button class="btn btn-danger btn-sm" onclick="window.deletePlan(${p.id})">🗑️</button>
+            <button class="btn btn-danger btn-sm" style="margin-left:auto;" onclick="window.deletePlan(${p.id})" title="Remover plano">🗑️</button>
           </div>
         </div>
       </div>`;
@@ -812,6 +813,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   updateLiveClock();
   setInterval(updateLiveClock, 1000);
+
+  // Close any open modal on backdrop click or Escape key
+  document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.classList.remove("active");
+    });
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".modal-overlay.active").forEach(m => m.classList.remove("active"));
+    }
+  });
 
   // Initial Load
   loadStats();
