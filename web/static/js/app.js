@@ -339,14 +339,56 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  window.deleteClient = async function(clientId) {
-    if (!confirm("Excluir este cliente e todos os seus dispositivos VPN?")) return;
-    const res = await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
+  const confirmModal = document.getElementById("confirmModal");
+  const confirmModalTitle = document.getElementById("confirmModalTitle");
+  const confirmModalMessage = document.getElementById("confirmModalMessage");
+  const okConfirmBtn = document.getElementById("okConfirmBtn");
+  document.getElementById("closeConfirmModal").addEventListener("click", () => confirmModal.classList.remove("active"));
+  document.getElementById("cancelConfirmBtn").addEventListener("click", () => confirmModal.classList.remove("active"));
+
+  function openConfirmModal(title, message, onConfirm) {
+    confirmModalTitle.textContent = title;
+    confirmModalMessage.textContent = message;
+    okConfirmBtn.onclick = async () => {
+      confirmModal.classList.remove("active");
+      await onConfirm();
+    };
+    confirmModal.classList.add("active");
+  }
+
+  const renameDeviceModal = document.getElementById("renameDeviceModal");
+  const renameDeviceForm = document.getElementById("renameDeviceForm");
+  document.getElementById("closeRenameDeviceModal").addEventListener("click", () => renameDeviceModal.classList.remove("active"));
+  document.getElementById("cancelRenameDeviceBtn").addEventListener("click", () => renameDeviceModal.classList.remove("active"));
+
+  renameDeviceForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const deviceId = document.getElementById("renameDeviceId").value;
+    const clientId = document.getElementById("renameDeviceClientId").value;
+    const fd = new FormData(renameDeviceForm);
+    const res = await fetch(`/api/devices/${deviceId}`, { method: "PUT", body: fd });
     if (res.ok) {
-      showToast("Cliente removido.");
-      loadClients();
-      loadStats();
+      renameDeviceModal.classList.remove("active");
+      showToast("Dispositivo renomeado!");
+      await refreshClientDevicesTable(clientId);
+    } else {
+      showToast("Erro ao renomear dispositivo.", "error");
     }
+  });
+
+  window.deleteClient = function(clientId) {
+    openConfirmModal(
+      "Excluir Cliente",
+      "Tem certeza que deseja excluir este cliente e todos os seus dispositivos VPN?",
+      async () => {
+        const res = await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("Cliente removido.");
+          loadClients();
+          loadStats();
+        }
+      }
+    );
   };
 
   window.openClientDevices = async function(clientId, clientName) {
@@ -386,18 +428,13 @@ document.addEventListener("DOMContentLoaded", () => {
       </tr>`).join("");
   }
 
-  window.renameDevice = async function(deviceId, clientId, currentName) {
-    const newName = prompt("Novo nome para o dispositivo:", currentName);
-    if (!newName || !newName.trim() || newName.trim() === currentName) return;
-    const fd = new FormData();
-    fd.append("name", newName.trim());
-    const res = await fetch(`/api/devices/${deviceId}`, { method: "PUT", body: fd });
-    if (res.ok) {
-      showToast("Dispositivo renomeado!");
-      await refreshClientDevicesTable(clientId);
-    } else {
-      showToast("Erro ao renomear dispositivo.", "error");
-    }
+  window.renameDevice = function(deviceId, clientId, currentName) {
+    document.getElementById("renameDeviceId").value = deviceId;
+    document.getElementById("renameDeviceClientId").value = clientId;
+    const inp = document.getElementById("renameDeviceNameInput");
+    inp.value = currentName;
+    renameDeviceModal.classList.add("active");
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
   };
 
   adminAddDeviceForm.addEventListener("submit", async (e) => {
@@ -428,15 +465,20 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("qrViewerModal").classList.add("active");
   };
 
-  window.deleteDevice = async function(deviceId, clientId) {
-    if (!confirm("Revogar acesso deste dispositivo?")) return;
-    const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
-    if (res.ok) {
-      showToast("Dispositivo revogado.");
-      await refreshClientDevicesTable(clientId);
-      loadClients();
-      loadStats();
-    }
+  window.deleteDevice = function(deviceId, clientId) {
+    openConfirmModal(
+      "Revogar Dispositivo",
+      "Deseja revogar o acesso VPN deste dispositivo imediatamente?",
+      async () => {
+        const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("Dispositivo revogado.");
+          await refreshClientDevicesTable(clientId);
+          loadClients();
+          loadStats();
+        }
+      }
+    );
   };
 
   // ==================== PLANS ====================
@@ -523,13 +565,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  window.deletePlan = async function(planId) {
-    if (!confirm("Remover este plano?")) return;
-    const res = await fetch(`/api/plans/${planId}`, { method: "DELETE" });
-    if (res.ok) {
-      showToast("Plano excluído.");
-      loadPlans();
-    }
+  window.deletePlan = function(planId) {
+    openConfirmModal(
+      "Excluir Plano",
+      "Tem certeza que deseja remover este plano?",
+      async () => {
+        const res = await fetch(`/api/plans/${planId}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("Plano excluído.");
+          loadPlans();
+        }
+      }
+    );
   };
 
   // ==================== CATEGORIES & BLOCKED DOMAINS ====================
@@ -629,13 +676,32 @@ document.addEventListener("DOMContentLoaded", () => {
           <td class="font-mono">${escapeHtml(r.client_ip)}</td>
           <td>${escapeHtml(r.reason)}</td>
           <td>
-            <button class="btn btn-primary btn-sm" onclick="window.quickUnblock('${escapeHtml(r.domain)}')">✓ Liberar Acesso</button>
+            <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" onclick="window.quickUnblock('${escapeHtml(r.domain)}')">✓ Liberar Acesso</button>
+              <button class="btn btn-danger btn-sm" onclick="window.deleteUnblockRequest(${r.id})" title="Excluir solicitação">🗑️ Excluir</button>
+            </div>
           </td>
         </tr>`).join("");
     } catch (err) {
       console.error(err);
     }
   }
+
+  window.deleteUnblockRequest = function(reqId) {
+    openConfirmModal(
+      "Excluir Solicitação",
+      "Deseja remover esta solicitação de desbloqueio da lista?",
+      async () => {
+        const res = await fetch(`/api/unblock-requests/${reqId}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("Solicitação removida.");
+          loadUnblockRequests();
+        } else {
+          showToast("Erro ao excluir solicitação.", "error");
+        }
+      }
+    );
+  };
 
   window.toggleDomain = async function(id) {
     const res = await fetch(`/api/blocked-domains/${id}/toggle`, { method: "POST" });
@@ -646,15 +712,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  window.deleteDomain = async function(id) {
-    if (!confirm("Remover este domínio da lista de bloqueio?")) return;
-    const res = await fetch(`/api/blocked-domains/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      showToast("Domínio removido do bloqueio.");
-      loadBlockedDomains();
-      loadCategories();
-      loadStats();
-    }
+  window.deleteDomain = function(id) {
+    openConfirmModal(
+      "Remover Domínio",
+      "Deseja remover este domínio da lista de bloqueio?",
+      async () => {
+        const res = await fetch(`/api/blocked-domains/${id}`, { method: "DELETE" });
+        if (res.ok) {
+          showToast("Domínio removido do bloqueio.");
+          loadBlockedDomains();
+          loadCategories();
+          loadStats();
+        }
+      }
+    );
   };
 
   window.quickBlockPrompt = function(domain) {

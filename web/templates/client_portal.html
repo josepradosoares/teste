@@ -162,6 +162,42 @@
     </div>
   </div>
 
+  <!-- Modal Rename My Device -->
+  <div class="modal-overlay" id="renameMyDeviceModal">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Renomear Dispositivo</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('renameMyDeviceModal').classList.remove('active')">&times;</button>
+      </div>
+      <form id="renameMyDeviceForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <input type="hidden" id="renameMyDeviceId">
+        <div class="form-group">
+          <label class="form-label" for="renameMyDeviceInput">Novo nome para o dispositivo</label>
+          <input type="text" id="renameMyDeviceInput" name="name" class="form-input" placeholder="Ex: Meu Celular" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('renameMyDeviceModal').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Nome</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Confirm Remove Device -->
+  <div class="modal-overlay" id="confirmClientModal">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Remover Dispositivo</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('confirmClientModal').classList.remove('active')">&times;</button>
+      </div>
+      <p id="confirmClientMessage" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;"></p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('confirmClientModal').classList.remove('active')">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirmClientOkBtn">Remover</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
 
   <script>
@@ -169,6 +205,18 @@
     const addDeviceBtn = document.getElementById("btnAddMyDevice");
     const addDeviceModal = document.getElementById("addDeviceModal");
     const addDeviceForm = document.getElementById("addDeviceForm");
+    const renameMyDeviceModal = document.getElementById("renameMyDeviceModal");
+    const renameMyDeviceForm = document.getElementById("renameMyDeviceForm");
+    const confirmClientModal = document.getElementById("confirmClientModal");
+    const toastContainer = document.getElementById("toastContainer");
+
+    function showClientToast(message, type = "success") {
+      const toast = document.createElement("div");
+      toast.className = `toast toast-${type}`;
+      toast.textContent = (type === "success" ? "✓ " : "⚠ ") + message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    }
 
     if (addDeviceBtn) {
       addDeviceBtn.addEventListener("click", () => {
@@ -184,7 +232,7 @@
         const res = await fetch(`/api/clients/${clientId}/devices`, { method: "POST", body: fd });
         const data = await res.json();
         if (!res.ok) {
-          alert(data.detail || "Erro ao adicionar dispositivo.");
+          showClientToast(data.detail || "Erro ao adicionar dispositivo.", "error");
           return;
         }
         window.location.reload();
@@ -194,7 +242,7 @@
     window.openQrModal = async function(deviceId) {
       const res = await fetch(`/api/devices/${deviceId}/qr`);
       const data = await res.json();
-      if (!res.ok) return alert(data.detail || "Erro ao carregar QR Code.");
+      if (!res.ok) return showClientToast(data.detail || "Erro ao carregar QR Code.", "error");
       document.getElementById("qrDeviceTitle").textContent = `VPN: ${data.device.name} (${data.device.vpn_ip})`;
       document.getElementById("qrSvgContainer").innerHTML = data.qr_svg;
       document.getElementById("qrConfigText").value = data.config_text;
@@ -202,20 +250,39 @@
       document.getElementById("qrModal").classList.add("active");
     };
 
-    window.renameMyDevice = async function(deviceId, currentName) {
-      const newName = prompt("Novo nome para o dispositivo:", currentName);
-      if (!newName || !newName.trim() || newName.trim() === currentName) return;
-      const fd = new FormData();
-      fd.append("name", newName.trim());
-      const res = await fetch(`/api/devices/${deviceId}`, { method: "PUT", body: fd });
-      if (res.ok) window.location.reload();
-      else alert("Erro ao renomear dispositivo.");
+    window.renameMyDevice = function(deviceId, currentName) {
+      document.getElementById("renameMyDeviceId").value = deviceId;
+      document.getElementById("renameMyDeviceInput").value = currentName;
+      renameMyDeviceModal.classList.add("active");
+      setTimeout(() => {
+        const inp = document.getElementById("renameMyDeviceInput");
+        inp.focus();
+        inp.select();
+      }, 50);
     };
 
-    window.removeMyDevice = async function(deviceId) {
-      if (!confirm("Remover este dispositivo? Ele perderá o acesso à VPN imediatamente.")) return;
-      const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
-      if (res.ok) window.location.reload();
+    renameMyDeviceForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const deviceId = document.getElementById("renameMyDeviceId").value;
+      const fd = new FormData(renameMyDeviceForm);
+      const res = await fetch(`/api/devices/${deviceId}`, { method: "PUT", body: fd });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        showClientToast("Erro ao renomear dispositivo.", "error");
+      }
+    });
+
+    window.removeMyDevice = function(deviceId) {
+      document.getElementById("confirmClientMessage").textContent = "Remover este dispositivo? Ele perderá o acesso à VPN imediatamente.";
+      const okBtn = document.getElementById("confirmClientOkBtn");
+      okBtn.onclick = async () => {
+        confirmClientModal.classList.remove("active");
+        const res = await fetch(`/api/devices/${deviceId}`, { method: "DELETE" });
+        if (res.ok) window.location.reload();
+        else showClientToast("Erro ao remover dispositivo.", "error");
+      };
+      confirmClientModal.classList.add("active");
     };
 
     document.querySelectorAll(".modal-overlay").forEach(overlay => {

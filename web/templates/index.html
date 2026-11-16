@@ -624,6 +624,43 @@
     </div>
   </div>
 
+  <!-- Modal: Rename Device -->
+  <div class="modal-overlay" id="renameDeviceModal">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Renomear Dispositivo</h3>
+        <button type="button" class="modal-close" id="closeRenameDeviceModal">&times;</button>
+      </div>
+      <form id="renameDeviceForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <input type="hidden" id="renameDeviceId">
+        <input type="hidden" id="renameDeviceClientId">
+        <div class="form-group">
+          <label class="form-label" for="renameDeviceNameInput">Novo nome para o dispositivo</label>
+          <input type="text" id="renameDeviceNameInput" name="name" class="form-input" placeholder="Ex: Notebook Trabalho" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="cancelRenameDeviceBtn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Nome</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Confirm Action -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="confirmModalTitle">Confirmar Ação</h3>
+        <button type="button" class="modal-close" id="closeConfirmModal">&times;</button>
+      </div>
+      <p id="confirmModalMessage" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;"></p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelConfirmBtn">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="okConfirmBtn">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
   <script src="/static/js/app.js"></script>
 </body>

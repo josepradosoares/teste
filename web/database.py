@@ -865,6 +865,15 @@ def list_unblock_requests() -> List[Dict[str, Any]]:
     conn.close()
     return [dict(row) for row in rows]
 
+def delete_unblock_request(request_id: int) -> bool:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM unblock_requests WHERE id = ?;", (request_id,))
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
+
 # ==================== SETTINGS ====================
 
 def get_settings() -> Dict[str, str]:

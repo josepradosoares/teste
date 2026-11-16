@@ -758,3 +758,10 @@ async def get_unblock_requests(request: Request):
     require_admin(request)
     reqs = db.list_unblock_requests()
     return {"requests": reqs, "total": len(reqs)}
+
+@app.delete("/api/unblock-requests/{request_id}")
+async def delete_unblock_request_route(request: Request, request_id: int):
+    require_admin(request)
+    if not db.delete_unblock_request(request_id):
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada.")
+    return {"success": True}

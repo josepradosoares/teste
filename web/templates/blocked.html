@@ -104,11 +104,14 @@
         if (data.success) {
           form.style.display = 'none';
           feedback.style.display = 'block';
+          feedback.style.color = 'var(--accent-blue)';
           feedback.textContent = '✓ Solicitação enviada com sucesso! O administrador foi notificado.';
           setTimeout(() => modal.classList.remove('active'), 2500);
         }
       } catch (err) {
-        alert('Erro ao enviar solicitação.');
+        feedback.style.display = 'block';
+        feedback.style.color = '#ef4444';
+        feedback.textContent = '⚠ Erro ao enviar solicitação. Tente novamente.';
       }
     });
   </script>
