@@ -148,10 +148,17 @@ def init_db():
         wg_public_key TEXT NOT NULL,
         wg_private_key TEXT NOT NULL,
         is_active INTEGER DEFAULT 1,
+        tunnel_mode TEXT DEFAULT 'auto',
         created_at TEXT NOT NULL,
         FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
     );
     """)
+
+    # Safe migration for existing databases lacking tunnel_mode
+    cursor.execute("PRAGMA table_info(devices);")
+    dev_cols = {row[1] for row in cursor.fetchall()}
+    if "tunnel_mode" not in dev_cols:
+        cursor.execute("ALTER TABLE devices ADD COLUMN tunnel_mode TEXT DEFAULT 'auto';")
 
     # Default settings
     default_settings = [
@@ -636,6 +643,33 @@ def get_device(device_id: int) -> Optional[Dict[str, Any]]:
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+def get_device_with_plan(device_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT d.*, COALESCE(p.price, 0) as plan_price, p.name as plan_name, c.status as client_status
+    FROM devices d
+    JOIN clients c ON d.client_id = c.id
+    LEFT JOIN plans p ON c.plan_id = p.id
+    WHERE d.id = ?;
+    """, (device_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_device_tunnel_mode(device_id: int, mode: str) -> bool:
+    """Updates a device's tunnel_mode ('auto', 'full', or 'dns_only')."""
+    cleaned = (mode or "auto").strip().lower()
+    if cleaned not in ("auto", "full", "dns_only"):
+        return False
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE devices SET tunnel_mode = ? WHERE id = ?;", (cleaned, device_id))
+    ok = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return ok
 
 def get_next_vpn_ip() -> str:
     conn = get_db()

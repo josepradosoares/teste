@@ -25,6 +25,7 @@ mkdir -p /etc/sysctl.d
 cat << 'EOF' > /etc/sysctl.d/99-netshield-performance.conf
 # NetShield DNS & WireGuard VPN - Tuning para Web Rápida e Streaming 4K
 net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
 
 # Google BBR + Fair Queue (mantém bitrate alto e reduz bufferbloat)
 net.core.default_qdisc = fq

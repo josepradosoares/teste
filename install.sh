@@ -129,6 +129,12 @@ iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT
 iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
+ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true
 
 cat << 'EOF' > /etc/logrotate.d/netshield-dnsmasq
 /var/log/dnsmasq.log {

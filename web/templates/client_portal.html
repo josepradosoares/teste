@@ -105,8 +105,8 @@
           <thead>
             <tr>
               <th>Nome do Dispositivo</th>
-              <th>IP na VPN</th>
-              <th>Criado em</th>
+              <th>IP na VPN (IPv4 / IPv6)</th>
+              <th>Modo do Túnel</th>
               <th>Conexão / Acesso</th>
               <th>Ações</th>
             </tr>
@@ -118,9 +118,30 @@
                 <td style="font-weight: 600;">
                   {{ dev.name }}
                   <button type="button" class="btn btn-secondary btn-sm" style="padding: 0.15rem 0.4rem; margin-left: 0.35rem;" onclick="renameMyDevice({{ dev.id }}, '{{ dev.name|replace("'", "\\'") }}')" title="Renomear">✏️</button>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 400;">Criado em {{ dev.created_at[:10] }}</div>
                 </td>
-                <td class="font-mono">{{ dev.vpn_ip }}</td>
-                <td class="font-mono" style="font-size: 0.8rem; color: var(--text-secondary);">{{ dev.created_at }}</td>
+                <td class="font-mono" style="font-size: 0.82rem;">
+                  <div>{{ dev.vpn_ip }}</div>
+                  <div style="font-size: 0.74rem; color: var(--text-muted);">{{ dev.vpn_ipv6 }}</div>
+                </td>
+                <td>
+                  {% if client.plan_price > 0 %}
+                    {% if dev.effective_tunnel_mode == 'full' %}
+                      <span class="badge badge-active">🔒 Criptografado (IP VPS: 152.67.44.54)</span>
+                      <div style="margin-top: 0.35rem;">
+                        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 0.18rem 0.45rem;" onclick="toggleDeviceTunnelMode({{ dev.id }}, 'dns_only')">Mudar para Só DNS</button>
+                      </div>
+                    {% else %}
+                      <span class="badge badge-category">⚡ Só DNS (IP Local)</span>
+                      <div style="margin-top: 0.35rem;">
+                        <button type="button" class="btn btn-primary btn-sm" style="font-size: 0.72rem; padding: 0.18rem 0.45rem;" onclick="toggleDeviceTunnelMode({{ dev.id }}, 'full')">🔒 Ativar VPN Criptografada</button>
+                      </div>
+                    {% endif %}
+                  {% else %}
+                    <span class="badge badge-category">⚡ Só DNS (Split-Tunnel)</span>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">VPN Criptografada no Plano Completo</div>
+                  {% endif %}
+                </td>
                 <td>
                   <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                     <button type="button" class="btn btn-primary btn-sm" onclick="openQrModal({{ dev.id }})">📱 QR Code</button>
@@ -416,6 +437,19 @@
 
     window.bindCurrentRouterIp = function() {
       submitRouterIp("auto");
+    };
+
+    window.toggleDeviceTunnelMode = async function(deviceId, newMode) {
+      const fd = new FormData();
+      fd.append("tunnel_mode", newMode);
+      const res = await fetch(`/api/devices/${deviceId}/tunnel-mode`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        showClientToast(data.detail || "Erro ao alterar modo do túnel.", "error");
+        return;
+      }
+      showClientToast("Modo atualizado! Baixe o novo .conf ou escaneie o QR Code novamente.", "success");
+      setTimeout(() => window.location.reload(), 900);
     };
 
     const routerIpForm = document.getElementById("routerIpForm");

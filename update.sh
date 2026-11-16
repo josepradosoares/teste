@@ -136,6 +136,16 @@ iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
 iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
 
+# Regras IPv6 equivalentes (best effort caso IPv6 esteja ativo no kernel)
+ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns6_rl -j DROP 2>/dev/null || true
+ip6tables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || ip6tables -I INPUT 1 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true
+ip6tables -I INPUT 1 -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
+
 # 2. Instalar e habilitar o serviço systemd de persistência do firewall
 cat << 'EOF' > /etc/systemd/system/netshield-firewall.service
 [Unit]
@@ -153,6 +163,14 @@ ExecStart=/sbin/iptables -I INPUT 1 -p tcp --dport 53 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT
 ExecStart=/sbin/iptables -I INPUT 1 -p udp --dport 51820 -j ACCEPT
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 443 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p udp --dport 53 -m hashlimit --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip --hashlimit-name netshield_dns6_rl -j DROP 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p udp --dport 5354 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -m conntrack --ctstate DNAT -p tcp --dport 5354 -j ACCEPT 2>/dev/null || true'
+ExecStart=/bin/sh -c '/sbin/ip6tables -I INPUT 1 -p udp --dport 51820 -j ACCEPT 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

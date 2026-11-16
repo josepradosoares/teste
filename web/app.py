@@ -203,6 +203,11 @@ async def client_portal(request: Request):
 
     client_info = db.get_client_by_user_id(user["id"])
     devices = db.list_devices(client_info["id"]) if client_info else []
+    client_price = float(client_info.get("plan_price") or 0) if client_info else 0.0
+    for dev in devices:
+        dev["plan_price"] = client_price
+        dev["vpn_ipv6"] = wg_manager.vpn_ipv4_to_ipv6(dev["vpn_ip"])
+        dev["effective_tunnel_mode"] = wg_manager.resolve_effective_tunnel_mode(dev)
     settings = db.get_settings()
     detected_ip = get_real_client_ip(request)
 
@@ -692,7 +697,7 @@ async def api_add_client_device(request: Request, client_id: int, name: str = Fo
 @app.get("/api/devices/{device_id}/qr")
 async def api_device_qr(request: Request, device_id: int):
     user = require_auth(request)
-    device = db.get_device(device_id)
+    device = db.get_device_with_plan(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
 
@@ -712,7 +717,7 @@ async def api_device_qr(request: Request, device_id: int):
 @app.get("/api/devices/{device_id}/config")
 async def api_download_device_config(request: Request, device_id: int):
     user = require_auth(request)
-    device = db.get_device(device_id)
+    device = db.get_device_with_plan(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
 
@@ -742,6 +747,27 @@ async def api_rename_device(request: Request, device_id: int, name: str = Form(.
         raise HTTPException(status_code=400, detail="Informe o novo nome do dispositivo.")
     db.rename_device(device_id, name)
     return {"success": True}
+
+@app.post("/api/devices/{device_id}/tunnel-mode")
+async def api_set_device_tunnel_mode(request: Request, device_id: int, tunnel_mode: str = Form(...)):
+    user = require_auth(request)
+    device = db.get_device_with_plan(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado.")
+    if user["role"] != "admin":
+        client = db.get_client_by_user_id(user["id"])
+        if not client or client["id"] != device["client_id"]:
+            raise HTTPException(status_code=403, detail="Acesso negado.")
+
+    if float(device.get("plan_price") or 0) <= 0 and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="VPN Criptografada com IP da VPS é exclusiva do Plano Completo (R$ 15/mês).")
+
+    mode = tunnel_mode.strip().lower()
+    if mode not in ("auto", "full", "dns_only"):
+        raise HTTPException(status_code=400, detail="Modo de túnel inválido.")
+    if not db.update_device_tunnel_mode(device_id, mode):
+        raise HTTPException(status_code=400, detail="Não foi possível atualizar o modo do túnel.")
+    return {"success": True, "tunnel_mode": mode}
 
 @app.delete("/api/devices/{device_id}")
 async def api_delete_device(request: Request, device_id: int):

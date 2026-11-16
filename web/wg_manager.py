@@ -4,7 +4,7 @@ import base64
 import secrets
 import subprocess
 import logging
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 import qrcode
 import qrcode.image.svg
 
@@ -54,21 +54,53 @@ def get_server_private_key() -> str:
             pass
     return ""
 
+def vpn_ipv4_to_ipv6(vpn_ip: str) -> str:
+    """Maps 10.8.<third>.<fourth> deterministically to a ULA IPv6 address under fd10:8::/64."""
+    parts = (vpn_ip or "").strip().split(".")
+    if len(parts) == 4 and parts[0] == "10" and parts[1] == "8":
+        try:
+            third = int(parts[2])
+            fourth = int(parts[3])
+            if 0 <= third <= 255 and 0 <= fourth <= 255:
+                return f"fd10:8::{fourth:x}" if third == 0 else f"fd10:8::{third:x}:{fourth:x}"
+        except ValueError:
+            pass
+    return "fd10:8::2"
+
+
+def resolve_effective_tunnel_mode(device: Dict[str, Any], settings: Optional[Dict[str, str]] = None) -> str:
+    """
+    Determines the effective WireGuard tunnel mode for a device:
+      - Free plan (plan_price <= 0): always 'dns_only' (Split-Tunnel DNS)
+      - Paid plan (plan_price > 0): 'full' (Encrypted VPN + VPS IP) by default,
+        or device's explicit choice ('full' / 'dns_only') when set.
+    """
+    plan_price = float(device.get("plan_price") or 0)
+    if plan_price <= 0:
+        return "dns_only"
+
+    dev_mode = (device.get("tunnel_mode") or "auto").strip().lower()
+    if dev_mode in ("full", "dns_only"):
+        return dev_mode
+    return "full"
+
+
 def build_client_config(device: Dict[str, Any]) -> str:
-    """Builds the .conf file content for a client device."""
+    """Builds the dual-stack (IPv4 + IPv6) .conf file content for a client device."""
     settings = db.get_settings()
     server_ip = settings.get("server_ip", "152.67.44.54").strip()
     wg_port = settings.get("wg_endpoint_port", "51820").strip() or "51820"
-    tunnel_mode = settings.get("wg_tunnel_mode", "full").strip()
+    effective_mode = resolve_effective_tunnel_mode(device, settings)
     server_pubkey = get_server_public_key()
+    vpn_ipv6 = vpn_ipv4_to_ipv6(device["vpn_ip"])
 
-    allowed_ips = "10.8.0.1/32" if tunnel_mode == "dns_only" else "0.0.0.0/0, ::/0"
+    allowed_ips = "10.8.0.1/32, fd10:8::1/128" if effective_mode == "dns_only" else "0.0.0.0/0, ::/0"
 
     return (
         f"[Interface]\n"
         f"PrivateKey = {device['wg_private_key']}\n"
-        f"Address = {device['vpn_ip']}/24\n"
-        f"DNS = 10.8.0.1\n"
+        f"Address = {device['vpn_ip']}/24, {vpn_ipv6}/64\n"
+        f"DNS = 10.8.0.1, fd10:8::1\n"
         f"MTU = 1420\n\n"
         f"[Peer]\n"
         f"PublicKey = {server_pubkey}\n"
@@ -119,21 +151,40 @@ def sync_wireguard_peers() -> Dict[str, Any]:
 
     lines = [
         "[Interface]",
-        "Address = 10.8.0.1/24",
+        "Address = 10.8.0.1/24, fd10:8::1/64",
         f"ListenPort = {wg_port}",
         "MTU = 1420",
         f"PrivateKey = {priv_key}",
-        f"PostUp = sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE",
-        f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; iptables -t nat -D POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE",
+        (
+            f"PostUp = sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; "
+            f"sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true; "
+            f"iptables -I FORWARD 1 -i wg0 -j ACCEPT; iptables -I FORWARD 1 -o wg0 -j ACCEPT; "
+            f"iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; "
+            f"iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; "
+            f"iptables -t nat -A POSTROUTING -o {wan_iface} -j MASQUERADE; "
+            f"ip6tables -I FORWARD 1 -i wg0 -j ACCEPT 2>/dev/null || true; "
+            f"ip6tables -I FORWARD 1 -o wg0 -j ACCEPT 2>/dev/null || true; "
+            f"ip6tables -t nat -A POSTROUTING -s fd10:8::/64 -o {wan_iface} -j MASQUERADE 2>/dev/null || true"
+        ),
+        (
+            f"PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; "
+            f"iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu; "
+            f"iptables -t nat -D POSTROUTING -s 10.8.0.0/16 -o {wan_iface} -j MASQUERADE; "
+            f"iptables -t nat -D POSTROUTING -o {wan_iface} -j MASQUERADE; "
+            f"ip6tables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null || true; "
+            f"ip6tables -D FORWARD -o wg0 -j ACCEPT 2>/dev/null || true; "
+            f"ip6tables -t nat -D POSTROUTING -s fd10:8::/64 -o {wan_iface} -j MASQUERADE 2>/dev/null || true"
+        ),
         ""
     ]
 
     for dev in active_devices:
+        vpn_ipv6 = vpn_ipv4_to_ipv6(dev["vpn_ip"])
         lines.extend([
             f"[Peer]",
             f"# {dev.get('client_name', 'Cliente')} - {dev['name']}",
             f"PublicKey = {dev['wg_public_key']}",
-            f"AllowedIPs = {dev['vpn_ip']}/32",
+            f"AllowedIPs = {dev['vpn_ip']}/32, {vpn_ipv6}/128",
             ""
         ])
 
@@ -158,13 +209,17 @@ def sync_wireguard_peers() -> Dict[str, Any]:
 
 
 def _ensure_wg_forwarding(wan_iface: str):
-    """Ensures ip_forward, FORWARD (above Oracle Cloud REJECT), TCPMSS, and MASQUERADE are active."""
+    """Ensures IPv4/IPv6 forwarding, FORWARD (above Oracle Cloud REJECT), and MASQUERADE are active."""
     try:
         subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        subprocess.run(["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
         rules = [
             (["iptables", "-C", "FORWARD", "-i", "wg0", "-j", "ACCEPT"], ["iptables", "-I", "FORWARD", "1", "-i", "wg0", "-j", "ACCEPT"]),
             (["iptables", "-C", "FORWARD", "-o", "wg0", "-j", "ACCEPT"], ["iptables", "-I", "FORWARD", "1", "-o", "wg0", "-j", "ACCEPT"]),
             (["iptables", "-t", "nat", "-C", "POSTROUTING", "-s", "10.8.0.0/16", "-o", wan_iface, "-j", "MASQUERADE"], ["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.8.0.0/16", "-o", wan_iface, "-j", "MASQUERADE"]),
+            (["ip6tables", "-C", "FORWARD", "-i", "wg0", "-j", "ACCEPT"], ["ip6tables", "-I", "FORWARD", "1", "-i", "wg0", "-j", "ACCEPT"]),
+            (["ip6tables", "-C", "FORWARD", "-o", "wg0", "-j", "ACCEPT"], ["ip6tables", "-I", "FORWARD", "1", "-o", "wg0", "-j", "ACCEPT"]),
+            (["ip6tables", "-t", "nat", "-C", "POSTROUTING", "-s", "fd10:8::/64", "-o", wan_iface, "-j", "MASQUERADE"], ["ip6tables", "-t", "nat", "-A", "POSTROUTING", "-s", "fd10:8::/64", "-o", wan_iface, "-j", "MASQUERADE"]),
         ]
         for check_cmd, add_cmd in rules:
             if subprocess.run(check_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3).returncode != 0:
@@ -175,15 +230,14 @@ def _ensure_wg_forwarding(wan_iface: str):
 
 def _sync_free_dns_nat(active_devices):
     """
-    Redirects DNS (UDP/TCP 53) from Free-tier VPN IPs (plan_price == 0) to port 5354
+    Redirects DNS (UDP/TCP 53) from Free-tier VPN IPs (IPv4 & IPv6, plan_price <= 0) to port 5354
     where netshield-dns-free runs the Christian & Family Free rules + SafeSearch.
     """
     try:
-        # Ensure chain exists and is flushed
+        # IPv4 NAT chain
         subprocess.run(["iptables", "-t", "nat", "-N", "NETSHIELD_DNS_FREE"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
         subprocess.run(["iptables", "-t", "nat", "-F", "NETSHIELD_DNS_FREE"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
 
-        # Ensure PREROUTING jumps to NETSHIELD_DNS_FREE for DNS on wg0
         for proto in ("udp", "tcp"):
             chk = subprocess.run(
                 ["iptables", "-t", "nat", "-C", "PREROUTING", "-i", "wg0", "-d", "10.8.0.1", "-p", proto, "--dport", "53", "-j", "NETSHIELD_DNS_FREE"],
@@ -195,13 +249,32 @@ def _sync_free_dns_nat(active_devices):
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
                 )
 
-        # Add REDIRECT rules for each Free-tier device IP
+        # IPv6 NAT chain (best effort)
+        subprocess.run(["ip6tables", "-t", "nat", "-N", "NETSHIELD_DNS_FREE"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        subprocess.run(["ip6tables", "-t", "nat", "-F", "NETSHIELD_DNS_FREE"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        for proto in ("udp", "tcp"):
+            chk6 = subprocess.run(
+                ["ip6tables", "-t", "nat", "-C", "PREROUTING", "-i", "wg0", "-d", "fd10:8::1", "-p", proto, "--dport", "53", "-j", "NETSHIELD_DNS_FREE"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+            )
+            if chk6.returncode != 0:
+                subprocess.run(
+                    ["ip6tables", "-t", "nat", "-I", "PREROUTING", "1", "-i", "wg0", "-d", "fd10:8::1", "-p", proto, "--dport", "53", "-j", "NETSHIELD_DNS_FREE"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+                )
+
+        # Add REDIRECT rules for each Free-tier device IPv4 & IPv6
         for dev in active_devices:
             if float(dev.get("plan_price") or 0) <= 0:
                 vpn_ip = dev["vpn_ip"]
+                vpn_ipv6 = vpn_ipv4_to_ipv6(vpn_ip)
                 for proto in ("udp", "tcp"):
                     subprocess.run(
                         ["iptables", "-t", "nat", "-A", "NETSHIELD_DNS_FREE", "-s", f"{vpn_ip}/32", "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-ports", "5354"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+                    )
+                    subprocess.run(
+                        ["ip6tables", "-t", "nat", "-A", "NETSHIELD_DNS_FREE", "-s", f"{vpn_ipv6}/128", "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-ports", "5354"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
                     )
     except Exception as e:
